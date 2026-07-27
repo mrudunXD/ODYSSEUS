@@ -1,4 +1,4 @@
-export type FeeCategory = 'Tuition' | 'Transport' | 'Laboratory' | 'Late Fee' | 'Subscription' | 'Sports' | 'Admission';
+export type FeeCategory = 'Tuition' | 'Transport' | 'Laboratory' | 'Late Fee' | 'Subscription' | 'Sports' | 'Admission' | 'Operational Expense';
 
 export type PaymentMethod = 'Razorpay' | 'UPI_QR' | 'Cash' | 'Cheque';
 
@@ -12,9 +12,9 @@ export interface FeeStructure {
   category: FeeCategory;
   amount: number;
   frequency: 'Monthly' | 'Quarterly' | 'Annual' | 'One-Time';
-  dueDateDay: number; // e.g. 5th of every month
-  lateFeePerDay: number; // e.g. $10 or ₹50 per day
-  grades: string[]; // e.g. ['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12']
+  dueDateDay: number;
+  lateFeePerDay: number;
+  grades: string[];
   description?: string;
   active: boolean;
 }
@@ -39,13 +39,14 @@ export interface Student {
 
 export interface Transaction {
   id: string;
-  studentId: string;
+  studentId?: string;
   studentName: string;
   rollNo?: string;
   category: string;
   amount: number;
   type: 'Inflow' | 'Outflow';
-  date: string; // ISO format or formatted string
+  date: string; // ISO or formatted
+  timestamp: number; // for chronological sorting & dynamic chart grouping
   method: PaymentMethod;
   status: TransactionStatus;
   referenceNo: string;
@@ -69,10 +70,11 @@ export interface OfflineReconciliation {
   notes?: string;
 }
 
-export interface AIInsight {
-  id: string;
-  title: string;
-  summary: string;
-  suggestedAction: string;
-  potentialImpact: string;
+export interface ChartDayPoint {
+  date: string;
+  fullDate: string;
+  inflow: number;
+  outflow: number;
+  inflowPercent: string;
+  outflowPercent: string;
 }

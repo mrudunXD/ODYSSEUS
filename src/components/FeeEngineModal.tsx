@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useFee } from '../context/FeeContext';
-import { Plus, Trash2, Edit3, ShieldAlert, Check, X, Layers, Percent } from 'lucide-react';
+import { Plus, Trash2, Edit3, Check, X, Percent, UserPlus, RefreshCw } from 'lucide-react';
 import { FeeCategory, FeeStructure } from '../types';
 
 export const FeeEngineModal: React.FC = () => {
@@ -10,13 +10,16 @@ export const FeeEngineModal: React.FC = () => {
     updateFeeStructure,
     deleteFeeStructure,
     students,
+    addStudent,
+    deleteStudent,
     applyWaiver,
+    resetAllData,
   } = useFee();
 
-  const [isAdding, setIsAdding] = useState(false);
+  const [isAddingFee, setIsAddingFee] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Form State
+  // Fee Form State
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<FeeCategory>('Tuition');
   const [amount, setAmount] = useState(5000);
@@ -25,6 +28,17 @@ export const FeeEngineModal: React.FC = () => {
   const [lateFeePerDay, setLateFeePerDay] = useState(50);
   const [selectedGrades, setSelectedGrades] = useState<string[]>(['Grade 10', 'Grade 11']);
   const [description, setDescription] = useState('');
+
+  // Add Student Form State
+  const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
+  const [stuName, setStuName] = useState('');
+  const [stuRollNo, setStuRollNo] = useState('');
+  const [stuGrade, setStuGrade] = useState('Grade 10');
+  const [stuSection, setStuSection] = useState('A');
+  const [stuParent, setStuParent] = useState('');
+  const [stuEmail, setStuEmail] = useState('');
+  const [stuPhone, setStuPhone] = useState('');
+  const [stuFeeAssigned, setStuFeeAssigned] = useState(15000);
 
   // Waiver Form State
   const [selectedStudentForWaiver, setSelectedStudentForWaiver] = useState(students[0]?.id || '');
@@ -62,13 +76,32 @@ export const FeeEngineModal: React.FC = () => {
         description,
         active: true,
       });
-      setIsAdding(false);
+      setIsAddingFee(false);
     }
 
-    // Reset
     setTitle('');
     setAmount(5000);
     setDescription('');
+  };
+
+  const handleSaveStudent = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stuName || !stuRollNo) return;
+
+    addStudent({
+      name: stuName,
+      rollNo: stuRollNo,
+      grade: stuGrade,
+      section: stuSection,
+      parentName: stuParent || 'Parent',
+      email: stuEmail || 'parent@school.edu',
+      phone: stuPhone || '+91 98765 43210',
+      totalFeeAssigned: Number(stuFeeAssigned),
+    });
+
+    setIsAddStudentOpen(false);
+    setStuName('');
+    setStuRollNo('');
   };
 
   const startEdit = (fee: FeeStructure) => {
@@ -81,7 +114,7 @@ export const FeeEngineModal: React.FC = () => {
     setLateFeePerDay(fee.lateFeePerDay);
     setSelectedGrades(fee.grades);
     setDescription(fee.description || '');
-    setIsAdding(true);
+    setIsAddingFee(true);
   };
 
   const toggleGrade = (g: string) => {
@@ -106,27 +139,36 @@ export const FeeEngineModal: React.FC = () => {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-[#EBE7DF] card-shadow">
         <div>
-          <h2 className="text-xl font-extrabold text-[#18181B] tracking-tight">Dynamic Fee Engine & Rule Configurator</h2>
-          <p className="text-xs text-[#71717A] mt-1">Create, modify, and assign tuition, transport, lab fees, and penalty rules.</p>
+          <h2 className="text-xl font-extrabold text-[#18181B] tracking-tight">Dynamic Fee Engine & Student Roster</h2>
+          <p className="text-xs text-[#71717A] mt-1">Manage real school fee categories, student enrollment, and scholarship waivers.</p>
         </div>
-        <button
-          onClick={() => {
-            setIsAdding(true);
-            setEditingId(null);
-            setTitle('');
-          }}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#FF4D00] hover:bg-[#E04400] text-white rounded-2xl text-xs font-bold shadow-md shadow-[#FF4D00]/20 transition-all cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create New Fee Structure</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setIsAddStudentOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#18181B] hover:bg-black text-white rounded-2xl text-xs font-bold transition-all cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Add Real Student</span>
+          </button>
+          <button
+            onClick={() => {
+              setIsAddingFee(true);
+              setEditingId(null);
+              setTitle('');
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#FF4D00] hover:bg-[#E04400] text-white rounded-2xl text-xs font-bold shadow-md shadow-[#FF4D00]/20 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Fee Structure</span>
+          </button>
+        </div>
       </div>
 
-      {/* Main Grid: Fee List & Waiver Grant Tool */}
+      {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Active Fee Structures */}
         <div className="lg:col-span-2 space-y-4">
-          <h3 className="text-sm font-bold text-[#18181B] tracking-wider uppercase">Active School Fee Structures</h3>
+          <h3 className="text-sm font-bold text-[#18181B] tracking-wider uppercase">Active Fee Head Categories</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {feeStructures.map((fee) => (
               <div key={fee.id} className="bg-white rounded-3xl p-5 border border-[#EBE7DF] card-shadow card-hover relative flex flex-col justify-between">
@@ -157,12 +199,10 @@ export const FeeEngineModal: React.FC = () => {
                     <div>
                       <span className="text-[10px] text-[#71717A] block">Late Penalty</span>
                       <span className="font-bold text-[#FF4D00]">${fee.lateFeePerDay}/day</span>
-                      <span className="text-[10px] text-[#71717A] block">after {fee.dueDateDay}th</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Applicable Grades */}
                 <div className="mt-4 pt-3 border-t border-[#F0ECE1] flex items-center justify-between">
                   <span className="text-[10px] text-[#71717A] font-semibold">Grades:</span>
                   <div className="flex items-center gap-1 flex-wrap">
@@ -176,9 +216,52 @@ export const FeeEngineModal: React.FC = () => {
               </div>
             ))}
           </div>
+
+          {/* Real Students Roster Table */}
+          <div className="bg-white rounded-3xl p-6 border border-[#EBE7DF] card-shadow mt-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-extrabold text-[#18181B] text-base">Enrolled Students Ledger ({students.length})</h3>
+              <button
+                onClick={() => setIsAddStudentOpen(true)}
+                className="text-xs font-bold text-[#FF4D00] hover:underline"
+              >
+                + Add Student
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-[#F0ECE1] text-[10px] font-bold text-[#71717A] uppercase">
+                    <th className="pb-2">Student Name</th>
+                    <th className="pb-2">Roll & Grade</th>
+                    <th className="pb-2">Total Assigned</th>
+                    <th className="pb-2">Paid</th>
+                    <th className="pb-2">Balance Due</th>
+                    <th className="pb-2 text-right">Delete</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#F5F2EA] text-xs">
+                  {students.map((s) => (
+                    <tr key={s.id}>
+                      <td className="py-2.5 font-bold text-[#18181B]">{s.name}</td>
+                      <td className="py-2.5 text-[#71717A]">{s.rollNo} ({s.grade})</td>
+                      <td className="py-2.5 font-semibold">${s.totalFeeAssigned.toLocaleString()}</td>
+                      <td className="py-2.5 text-emerald-600 font-bold">${s.paidAmount.toLocaleString()}</td>
+                      <td className="py-2.5 text-[#FF4D00] font-extrabold">${s.balanceDue.toLocaleString()}</td>
+                      <td className="py-2.5 text-right">
+                        <button onClick={() => deleteStudent(s.id)} className="text-[#A1A1AA] hover:text-red-600">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
-        {/* Right Col: Grant Waiver / Scholarship Form */}
+        {/* Right Col: Grant Waiver Form */}
         <div className="bg-white rounded-3xl p-6 border border-[#EBE7DF] card-shadow h-fit">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-9 h-9 rounded-2xl bg-[#FF4D00] text-white flex items-center justify-center">
@@ -186,7 +269,7 @@ export const FeeEngineModal: React.FC = () => {
             </div>
             <div>
               <h3 className="font-extrabold text-[#18181B] text-sm">Waiver & Scholarship Engine</h3>
-              <p className="text-[11px] text-[#71717A]">Apply merit discounts or financial aid</p>
+              <p className="text-[11px] text-[#71717A]">Apply discounts or financial aid</p>
             </div>
           </div>
 
@@ -224,7 +307,7 @@ export const FeeEngineModal: React.FC = () => {
             </div>
 
             <div>
-              <label className="font-bold text-[#18181B] block mb-1">Waiver Reason / Category</label>
+              <label className="font-bold text-[#18181B] block mb-1">Waiver Reason</label>
               <input
                 type="text"
                 value={waiverReason}
@@ -241,18 +324,121 @@ export const FeeEngineModal: React.FC = () => {
               Grant Waiver & Log Approval
             </button>
           </form>
+
+          {/* Reset Data Option */}
+          <div className="mt-6 pt-4 border-t border-[#F0ECE1] text-center">
+            <button
+              onClick={resetAllData}
+              className="text-xs text-[#71717A] hover:text-red-600 font-semibold flex items-center justify-center gap-1 mx-auto"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Reset Database to Defaults</span>
+            </button>
+          </div>
         </div>
       </div>
 
+      {/* Add Student Modal */}
+      {isAddStudentOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#EBE7DF] shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-[#F0ECE1]">
+              <h3 className="font-extrabold text-[#18181B] text-base">Enroll New Student</h3>
+              <button onClick={() => setIsAddStudentOpen(false)} className="text-[#A1A1AA] hover:text-[#18181B]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStudent} className="space-y-3 pt-4 text-xs">
+              <div>
+                <label className="font-bold text-[#18181B] block mb-1">Student Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={stuName}
+                  onChange={(e) => setStuName(e.target.value)}
+                  placeholder="e.g. Vikramaditya Singh"
+                  className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2 font-semibold text-[#18181B]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-[#18181B] block mb-1">Roll Number</label>
+                  <input
+                    type="text"
+                    required
+                    value={stuRollNo}
+                    onChange={(e) => setStuRollNo(e.target.value)}
+                    placeholder="2025-109"
+                    className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2 font-mono font-bold text-[#18181B]"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-[#18181B] block mb-1">Grade</label>
+                  <select
+                    value={stuGrade}
+                    onChange={(e) => setStuGrade(e.target.value)}
+                    className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2 font-semibold text-[#18181B]"
+                  >
+                    {gradeOptions.map((g) => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-[#18181B] block mb-1">Parent Name</label>
+                  <input
+                    type="text"
+                    value={stuParent}
+                    onChange={(e) => setStuParent(e.target.value)}
+                    placeholder="Parent Full Name"
+                    className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2 font-semibold text-[#18181B]"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-[#18181B] block mb-1">Assigned Fee ($)</label>
+                  <input
+                    type="number"
+                    value={stuFeeAssigned}
+                    onChange={(e) => setStuFeeAssigned(Number(e.target.value))}
+                    className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2 font-bold text-[#18181B]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-[#F0ECE1]">
+                <button
+                  type="button"
+                  onClick={() => setIsAddStudentOpen(false)}
+                  className="px-4 py-2 bg-[#FAF8F3] border border-[#EBE7DF] text-[#18181B] font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-[#FF4D00] text-white font-bold rounded-xl hover:bg-[#E04400] shadow-md shadow-[#FF4D00]/20"
+                >
+                  Enroll Student
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Add / Edit Fee Structure Modal */}
-      {isAdding && (
+      {isAddingFee && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 max-w-lg w-full border border-[#EBE7DF] shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center justify-between pb-4 border-b border-[#F0ECE1]">
               <h3 className="font-extrabold text-base text-[#18181B]">
-                {editingId ? 'Edit Fee Structure' : 'Create New School Fee Structure'}
+                {editingId ? 'Edit Fee Structure' : 'Create New Fee Structure'}
               </h3>
-              <button onClick={() => setIsAdding(false)} className="text-[#A1A1AA] hover:text-[#18181B]">
+              <button onClick={() => setIsAddingFee(false)} className="text-[#A1A1AA] hover:text-[#18181B]">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -265,7 +451,7 @@ export const FeeEngineModal: React.FC = () => {
                   required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Grade 10 Robotics & Science Lab Fee"
+                  placeholder="e.g. Grade 10 Robotics Lab Fee"
                   className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2.5 font-semibold text-[#18181B]"
                 />
               </div>
@@ -283,7 +469,6 @@ export const FeeEngineModal: React.FC = () => {
                     <option value="Laboratory">Laboratory</option>
                     <option value="Late Fee">Late Fee</option>
                     <option value="Sports">Sports</option>
-                    <option value="Admission">Admission</option>
                   </select>
                 </div>
 
@@ -299,70 +484,11 @@ export const FeeEngineModal: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-[#18181B] block mb-1">Frequency</label>
-                  <select
-                    value={frequency}
-                    onChange={(e) => setFrequency(e.target.value as any)}
-                    className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2.5 font-semibold text-[#18181B]"
-                  >
-                    <option value="Monthly">Monthly</option>
-                    <option value="Quarterly">Quarterly</option>
-                    <option value="Annual">Annual</option>
-                    <option value="One-Time">One-Time</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-bold text-[#18181B] block mb-1">Late Penalty ($/day)</label>
-                  <input
-                    type="number"
-                    value={lateFeePerDay}
-                    onChange={(e) => setLateFeePerDay(Number(e.target.value))}
-                    className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2.5 font-semibold text-[#18181B]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-bold text-[#18181B] block mb-1.5">Applicable Grades</label>
-                <div className="flex flex-wrap gap-2">
-                  {gradeOptions.map((g) => {
-                    const isSelected = selectedGrades.includes(g);
-                    return (
-                      <button
-                        type="button"
-                        key={g}
-                        onClick={() => toggleGrade(g)}
-                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-colors ${
-                          isSelected
-                            ? 'bg-[#FF4D00] text-white'
-                            : 'bg-[#FAF8F3] text-[#71717A] border border-[#EBE7DF]'
-                        }`}
-                      >
-                        {g}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <label className="font-bold text-[#18181B] block mb-1">Description / Internal Notes</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={2}
-                  className="w-full bg-[#FAF8F3] border border-[#EBE7DF] rounded-xl p-2.5 font-semibold text-[#18181B]"
-                />
-              </div>
-
               <div className="flex justify-end gap-2 pt-3 border-t border-[#F0ECE1]">
                 <button
                   type="button"
-                  onClick={() => setIsAdding(false)}
-                  className="px-4 py-2 bg-[#FAF8F3] border border-[#EBE7DF] text-[#18181B] font-bold rounded-xl hover:bg-[#F0ECE1]"
+                  onClick={() => setIsAddingFee(false)}
+                  className="px-4 py-2 bg-[#FAF8F3] border border-[#EBE7DF] text-[#18181B] font-bold rounded-xl"
                 >
                   Cancel
                 </button>

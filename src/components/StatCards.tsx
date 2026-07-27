@@ -19,7 +19,7 @@ export const StatCards: React.FC = () => {
               className="text-3xl lg:text-4xl font-extrabold text-[#18181B] tracking-tight"
             />
             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#FF4D00] bg-[#FFF0EB] px-2.5 py-1 rounded-full">
-              +9.5% from last month
+              Real Revenue
             </span>
           </div>
         </div>
@@ -40,9 +40,9 @@ export const StatCards: React.FC = () => {
             className="text-2xl lg:text-3xl font-extrabold text-[#18181B] tracking-tight"
           />
           <div className="mt-2 flex items-center justify-between text-xs">
-            <span className="text-[#71717A] font-medium">Growth Rate</span>
+            <span className="text-[#71717A] font-medium">Net Revenue Margin</span>
             <span className="text-[#FF4D00] font-bold flex items-center gap-0.5">
-              <ArrowUpRight className="w-3.5 h-3.5" /> 4.1%
+              <ArrowUpRight className="w-3.5 h-3.5" /> Computed
             </span>
           </div>
         </div>
@@ -63,9 +63,9 @@ export const StatCards: React.FC = () => {
             className="text-2xl lg:text-3xl font-extrabold text-[#18181B] tracking-tight"
           />
           <div className="mt-2 flex items-center justify-between text-xs">
-            <span className="text-[#71717A] font-medium">Growth Rate</span>
-            <span className="text-[#FF4D00] font-bold flex items-center gap-0.5">
-              <ArrowUpRight className="w-3.5 h-3.5" /> 1.8%
+            <span className="text-[#71717A] font-medium">Outflow Expenses</span>
+            <span className="text-[#71717A] font-bold flex items-center gap-0.5">
+              Real Outflows
             </span>
           </div>
         </div>
@@ -86,9 +86,9 @@ export const StatCards: React.FC = () => {
             className="text-2xl lg:text-3xl font-extrabold text-[#18181B] tracking-tight"
           />
           <div className="mt-2 flex items-center justify-between text-xs">
-            <span className="text-[#71717A] font-medium">Growth Rate</span>
+            <span className="text-[#71717A] font-medium">Revenue + Outstanding</span>
             <span className="text-[#FF4D00] font-bold flex items-center gap-0.5">
-              <ArrowUpRight className="w-3.5 h-3.5" /> 5.3%
+              <ArrowUpRight className="w-3.5 h-3.5" /> Dynamic
             </span>
           </div>
         </div>
