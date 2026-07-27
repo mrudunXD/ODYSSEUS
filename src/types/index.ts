@@ -45,12 +45,15 @@ export interface Transaction {
   category: string;
   amount: number;
   type: 'Inflow' | 'Outflow';
-  date: string; // ISO or formatted
-  timestamp: number; // for chronological sorting & dynamic chart grouping
+  date: string;
+  timestamp: number;
   method: PaymentMethod;
   status: TransactionStatus;
   referenceNo: string;
   receiptNo: string;
+  razorpayPaymentId?: string;
+  razorpayOrderId?: string;
+  razorpaySignature?: string;
   notes?: string;
 }
 
