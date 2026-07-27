@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useFee } from '../context/FeeContext';
-import { Zap, X, ShieldCheck, ArrowRight, Key, ExternalLink } from 'lucide-react';
+import { Zap, X, ShieldCheck, ArrowRight, Lock } from 'lucide-react';
 
 export const RazorpayModal: React.FC = () => {
   const {
@@ -10,8 +10,6 @@ export const RazorpayModal: React.FC = () => {
     setIsRazorpayOpen,
     launchOfficialRazorpaySDK,
     selectedStudentForPayment,
-    razorpayKey,
-    setRazorpayKey,
   } = useFee();
 
   const [selectedStudentId, setSelectedStudentId] = useState(
@@ -19,27 +17,19 @@ export const RazorpayModal: React.FC = () => {
   );
   const [selectedCategory, setSelectedCategory] = useState(feeStructures[0]?.title || 'Tuition Fee');
   const [amount, setAmount] = useState(12500);
-  const [keyInput, setKeyInput] = useState(razorpayKey || '');
-  const [isLaunching, setIsLaunching] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   if (!isRazorpayOpen) return null;
 
-  const handleLaunchOfficialRazorpay = async (e: React.FormEvent) => {
+  const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!keyInput.trim()) {
-      alert('Please enter your Razorpay Key ID (e.g. rzp_test_...) to launch the official Razorpay SDK.');
-      return;
-    }
-
-    setRazorpayKey(keyInput.trim());
-    setIsLaunching(true);
-
+    setIsProcessing(true);
     try {
-      await launchOfficialRazorpaySDK(selectedStudentId, Number(amount), selectedCategory, keyInput.trim());
+      await launchOfficialRazorpaySDK(selectedStudentId, Number(amount), selectedCategory);
     } catch (err: any) {
-      console.warn('Razorpay SDK closed or cancelled:', err);
+      console.warn('Checkout closed or failed:', err);
     } finally {
-      setIsLaunching(false);
+      setIsProcessing(false);
     }
   };
 
@@ -53,8 +43,8 @@ export const RazorpayModal: React.FC = () => {
               <Zap className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-[#18181B] text-base">Official Razorpay Gateway</h3>
-              <p className="text-[11px] text-[#71717A]">Official SDK Integration (checkout.js)</p>
+              <h3 className="font-extrabold text-[#18181B] text-base">Razorpay Standard Checkout</h3>
+              <p className="text-[11px] text-[#71717A]">Backend HMAC Signature Verified</p>
             </div>
           </div>
           <button onClick={() => setIsRazorpayOpen(false)} className="text-[#A1A1AA] hover:text-[#18181B]">
@@ -62,38 +52,8 @@ export const RazorpayModal: React.FC = () => {
           </button>
         </div>
 
-        <form onSubmit={handleLaunchOfficialRazorpay} className="space-y-4 pt-4 text-xs">
-          {/* Razorpay Key ID Field */}
-          <div className="bg-[#FFF0EB] p-3.5 rounded-2xl border border-[#FF4D00]/20 space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="font-extrabold text-[#FF4D00] flex items-center gap-1.5 text-xs">
-                <Key className="w-4 h-4" />
-                <span>Razorpay Key ID (Test / Live)</span>
-              </label>
-              <a
-                href="https://dashboard.razorpay.com/"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[10px] text-[#71717A] hover:text-[#FF4D00] font-bold flex items-center gap-1"
-              >
-                <span>Get Key</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-            <input
-              type="text"
-              required
-              placeholder="e.g. rzp_test_1234567890"
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-              className="w-full bg-white border border-[#EBE7DF] rounded-xl p-2.5 font-mono text-xs font-bold text-[#18181B] focus:outline-none focus:border-[#FF4D00]"
-            />
-            <span className="text-[10px] text-[#71717A] block">
-              Enter your official Razorpay Key ID to invoke the native Razorpay payment iframe popup.
-            </span>
-          </div>
-
-          {/* Student Selection */}
+        <form onSubmit={handlePay} className="space-y-4 pt-4 text-xs">
+          {/* Select Student */}
           <div>
             <label className="font-bold text-[#18181B] block mb-1">Student Account</label>
             <select
@@ -109,10 +69,10 @@ export const RazorpayModal: React.FC = () => {
             </select>
           </div>
 
-          {/* Fee Category & Amount */}
+          {/* Fee Item */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="font-bold text-[#18181B] block mb-1">Fee Category</label>
+              <label className="font-bold text-[#18181B] block mb-1">Fee Purpose</label>
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
@@ -138,26 +98,24 @@ export const RazorpayModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Security Badge */}
-          <div className="flex items-center justify-between text-[11px] text-[#71717A] pt-1">
-            <div className="flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-[#FF4D00]" />
-              <span>Razorpay Official SDK (checkout.js)</span>
+          <div className="bg-[#FAF8F3] p-3 rounded-2xl border border-[#EBE7DF] flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-1.5 text-[#71717A]">
+              <Lock className="w-3.5 h-3.5 text-[#FF4D00]" />
+              <span>HMAC-SHA256 Server Signature</span>
             </div>
-            <span className="font-bold text-[#18181B]">PCI-DSS Compliant</span>
+            <span className="font-bold text-[#18181B]">Live Backend Proxy</span>
           </div>
 
-          {/* Submit Button */}
           <button
             type="submit"
-            disabled={isLaunching}
+            disabled={isProcessing}
             className="w-full py-3.5 bg-[#FF4D00] hover:bg-[#E04400] text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-[#FF4D00]/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
           >
-            {isLaunching ? (
-              <span>Opening Official Razorpay Iframe...</span>
+            {isProcessing ? (
+              <span>Creating Server Order...</span>
             ) : (
               <>
-                <span>Launch Official Razorpay Popup</span>
+                <span>Pay ${amount.toLocaleString()} via Razorpay</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}

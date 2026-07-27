@@ -18,9 +18,8 @@ interface FeeContextType {
   setActiveTab: (tab: string) => void;
   currencySymbol: string;
 
-  // Real Razorpay Key ID
+  // Razorpay Key ID
   razorpayKey: string;
-  setRazorpayKey: (key: string) => void;
 
   // Domain State (Persisted in localStorage)
   feeStructures: FeeStructure[];
@@ -72,8 +71,8 @@ interface FeeContextType {
   activeReceiptTx: Transaction | null;
   setActiveReceiptTx: (tx: Transaction | null) => void;
 
-  // Official Real Razorpay Checkout Invoker
-  launchOfficialRazorpaySDK: (studentId: string, amount: number, category: string, keyToUse?: string) => Promise<void>;
+  // Official Standard Razorpay Checkout Flow (Create Order -> Standard Checkout -> Verify Signature)
+  launchOfficialRazorpaySDK: (studentId: string, amount: number, category: string) => Promise<void>;
 }
 
 const FeeContext = createContext<FeeContextType | undefined>(undefined);
@@ -101,18 +100,6 @@ const defaultFeeStructures: FeeStructure[] = [
     lateFeePerDay: 20,
     grades: ['Grade 1', 'Grade 2', 'Grade 10', 'Grade 11'],
     description: 'AC Transport service with GPS live tracking',
-    active: true,
-  },
-  {
-    id: 'FEE-103',
-    title: 'Advanced STEM & AI Lab Fee',
-    category: 'Laboratory',
-    amount: 1800,
-    frequency: 'Annual',
-    dueDateDay: 15,
-    lateFeePerDay: 30,
-    grades: ['Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'],
-    description: 'Robotics kits & practical lab consumables',
     active: true,
   },
 ];
@@ -186,38 +173,15 @@ const defaultTransactions: Transaction[] = [
     receiptNo: 'REC-2025-001',
     notes: 'Senior High Tuition Fee Payment',
   },
-  {
-    id: 'TXN-9902',
-    studentId: 'STU-102',
-    studentName: 'Sofia Martinez',
-    rollNo: '2025-102',
-    category: 'Transport Fee',
-    amount: 10000,
-    type: 'Inflow',
-    date: 'Dec 07, 2025',
-    timestamp: Date.now() - 86400000 * 18,
-    method: 'Cash',
-    status: 'Completed',
-    referenceNo: 'CSH_CNTR_441',
-    receiptNo: 'REC-2025-002',
-    notes: 'Counter Cash Deposit',
-  },
 ];
 
 export const FeeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const currencySymbol = '$';
 
-  // Real Razorpay Key State (Persisted in localStorage)
-  const [razorpayKey, setRazorpayKey] = useState<string>(() => {
-    return localStorage.getItem('nueansa_razorpayKey') || '';
-  });
+  // Razorpay Key ID loaded from Environment Variables
+  const razorpayKey = (import.meta as any).env?.VITE_RAZORPAY_KEY_ID || 'rzp_test_TIWVCWyzGuKOq8';
 
-  useEffect(() => {
-    localStorage.setItem('nueansa_razorpayKey', razorpayKey);
-  }, [razorpayKey]);
-
-  // Load state from localStorage or defaults
   const [feeStructures, setFeeStructures] = useState<FeeStructure[]>(() => {
     const saved = localStorage.getItem('nueansa_feeStructures');
     return saved ? JSON.parse(saved) : defaultFeeStructures;
@@ -348,7 +312,6 @@ export const FeeProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setFeeStructures((prev) => prev.filter((item) => item.id !== id));
   };
 
-  // Add Transaction & Update Student Ledger
   const addTransaction = (txData: Omit<Transaction, 'id' | 'receiptNo' | 'timestamp'>): Transaction => {
     const receiptNo = `REC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const newTx: Transaction = {
@@ -480,87 +443,129 @@ export const FeeProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem('nueansa_students');
     localStorage.removeItem('nueansa_transactions');
     localStorage.removeItem('nueansa_reconciliation');
-    localStorage.removeItem('nueansa_razorpayKey');
     setFeeStructures(defaultFeeStructures);
     setStudents(defaultStudents);
     setTransactions(defaultTransactions);
     setReconciliationQueue([]);
-    setRazorpayKey('');
   };
 
-  // Launch Official Real Razorpay Checkout SDK
-  const launchOfficialRazorpaySDK = async (studentId: string, amount: number, category: string, keyToUse?: string): Promise<void> => {
-    const key = keyToUse || razorpayKey;
-    if (!key) {
-      alert('Please enter your Razorpay Key ID (e.g. rzp_test_...) to launch the official Razorpay Checkout SDK.');
-      return;
-    }
-
+  /**
+   * Complete Razorpay Standard Web Integration Flow:
+   * 1. Call POST /api/create-order to create order ID
+   * 2. Open Razorpay modal with order_id & VITE_RAZORPAY_KEY_ID
+   * 3. Send payment_id, order_id, signature to POST /api/verify-payment
+   */
+  const launchOfficialRazorpaySDK = async (studentId: string, amount: number, category: string): Promise<void> => {
     const student = students.find((s) => s.id === studentId);
     const studentName = student ? student.name : 'School Parent';
+    const amountInPaise = amount * 100; // Minimum 100 paise
 
     if (!window.Razorpay) {
-      alert('Razorpay Checkout SDK script is loading. Please check internet connection.');
+      alert('Razorpay Checkout SDK is loading. Please check your internet connection.');
       return;
     }
 
-    return new Promise((resolve, reject) => {
-      const options = {
-        key: key,
-        amount: amount * 100, // Amount in paise
-        currency: 'INR',
-        name: 'Nueansa International School',
-        description: `Fee Collection: ${category} - ${studentName}`,
-        image: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
-        handler: function (response: any) {
-          // Callback invoked on successful payment by Razorpay SDK
-          const tx = addTransaction({
-            studentId,
-            studentName,
-            rollNo: student?.rollNo,
-            category: `${category} (Razorpay Official)`,
-            amount,
-            type: 'Inflow',
-            date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
-            method: 'Razorpay',
-            status: 'Completed',
-            referenceNo: response.razorpay_payment_id,
-            razorpayPaymentId: response.razorpay_payment_id,
-            razorpayOrderId: response.razorpay_order_id,
-            razorpaySignature: response.razorpay_signature,
-            notes: 'Official Razorpay SDK Verified Transaction',
-          });
+    try {
+      // STEP 1: BACKEND - Create Order
+      const orderRes = await fetch('/api/create-order', {
+        method: 'POST',
+        headers: { 'Content-[#Type]': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amountInPaise,
+          currency: 'INR',
+          receipt: `rcpt_${Date.now()}`,
+        }),
+      });
 
-          setActiveReceiptTx(tx);
-          setIsRazorpayOpen(false);
-          resolve();
-        },
-        prefill: {
-          name: studentName,
-          email: student?.email || 'parent@nueansaschool.edu',
-          contact: student?.phone || '+91 98765 43210',
-        },
-        theme: {
-          color: '#FF4D00',
-        },
-        modal: {
-          ondismiss: function () {
-            reject(new Error('Razorpay Checkout closed by user.'));
+      if (!orderRes.ok) {
+        const errData = await orderRes.json();
+        throw new Error(errData.error || 'Failed to create Razorpay Order on server');
+      }
+
+      const orderData = await orderRes.json(); // { order_id, amount, currency }
+
+      // STEP 2: FRONTEND - Open Razorpay Standard Modal with order_id
+      return new Promise((resolve, reject) => {
+        const options = {
+          key: razorpayKey,
+          amount: orderData.amount,
+          currency: orderData.currency,
+          name: 'Nueansa International School',
+          description: `Fee Collection: ${category} - ${studentName}`,
+          order_id: orderData.order_id,
+          image: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
+          handler: async function (response: any) {
+            try {
+              // STEP 3: BACKEND - Verify Signature
+              const verifyRes = await fetch('/api/verify-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                }),
+              });
+
+              const verifyData = await verifyRes.json();
+
+              if (verifyRes.ok && verifyData.success) {
+                // Payment Signature Verified! Log Transaction & Update Balance
+                const tx = addTransaction({
+                  studentId,
+                  studentName,
+                  rollNo: student?.rollNo,
+                  category: `${category} (Razorpay Verified)`,
+                  amount,
+                  type: 'Inflow',
+                  date: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+                  method: 'Razorpay',
+                  status: 'Completed',
+                  referenceNo: response.razorpay_payment_id,
+                  razorpayPaymentId: response.razorpay_payment_id,
+                  razorpayOrderId: response.razorpay_order_id,
+                  razorpaySignature: response.razorpay_signature,
+                  notes: 'Razorpay HMAC-SHA256 Verified Transaction',
+                });
+
+                setActiveReceiptTx(tx);
+                setIsRazorpayOpen(false);
+                resolve();
+              } else {
+                alert(`Payment Signature Verification Failed: ${verifyData.error || 'Invalid signature'}`);
+                reject(new Error('Signature verification failed'));
+              }
+            } catch (vErr: any) {
+              alert(`Backend Verification Error: ${vErr.message}`);
+              reject(vErr);
+            }
           },
-        },
-      };
+          prefill: {
+            name: studentName,
+            email: student?.email || 'parent@nueansaschool.edu',
+            contact: student?.phone || '+91 98765 43210',
+          },
+          theme: {
+            color: '#FF4D00',
+          },
+          modal: {
+            ondismiss: function () {
+              console.log('Razorpay modal dismissed by user.');
+              resolve();
+            },
+          },
+        };
 
-      try {
         const rzp = new window.Razorpay(options);
         rzp.on('payment.failed', function (response: any) {
           alert(`Razorpay Payment Failed: ${response.error.description}`);
+          reject(new Error(response.error.description));
         });
         rzp.open();
-      } catch (err: any) {
-        alert(`Razorpay Initialization Error: ${err?.message || err}`);
-        reject(err);
-      }
-    });
+      });
+    } catch (error: any) {
+      alert(`Razorpay Order Creation Error: ${error.message}`);
+    }
   };
 
   return (
@@ -570,7 +575,6 @@ export const FeeProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveTab,
         currencySymbol,
         razorpayKey,
-        setRazorpayKey,
         feeStructures,
         students,
         transactions,
