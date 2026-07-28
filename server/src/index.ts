@@ -301,6 +301,123 @@ app.put('/api/auth/profile', authenticateToken, async (req: any, res) => {
   }
 });
 
+// NEW ENTERPRISE ENDPOINTS: SCHOLARSHIPS, PAYROLL, BATCH CSV IMPORT, FINANCIAL AUDIT STATEMENTS
+app.get('/api/scholarships', authenticateToken, async (_req, res) => {
+  try {
+    const scholarships = await prisma.scholarship.findMany({
+      include: { student: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: scholarships });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch scholarships' });
+  }
+});
+
+app.post('/api/scholarships', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: any, res: any) => {
+  try {
+    const { studentId, title, percentage } = req.body;
+    if (!studentId || !title || !percentage)
+      return res.status(400).json({ error: 'Student ID, title, and percentage required' });
+
+    const school = await prisma.school.findFirst();
+    if (!school) return res.status(400).json({ error: 'School not found' });
+
+    const scholarship = await prisma.scholarship.create({
+      data: {
+        schoolId: school.id,
+        studentId,
+        title,
+        percentage: Number(percentage),
+        grantedBy: req.user.name,
+      },
+      include: { student: true },
+    });
+
+    await writeAudit(req.user.id, 'SCHOLARSHIP_GRANTED', 'Scholarship', scholarship.id, null, { studentId, title, percentage });
+    res.status(201).json({ success: true, data: scholarship });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to grant scholarship' });
+  }
+});
+
+app.get('/api/payroll', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (_req, res) => {
+  try {
+    const payroll = await prisma.payrollEntry.findMany({ orderBy: { payDate: 'desc' } });
+    res.json({ success: true, data: payroll });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch payroll history' });
+  }
+});
+
+app.post('/api/payroll/disburse', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (req: any, res: any) => {
+  try {
+    const { staffName, designation, baseSalary, allowance = 0, deduction = 0 } = req.body;
+    if (!staffName || !baseSalary)
+      return res.status(400).json({ error: 'Staff name and base salary required' });
+
+    const school = await prisma.school.findFirst();
+    if (!school) return res.status(400).json({ error: 'School not found' });
+
+    const netPaid = Number(baseSalary) + Number(allowance) - Number(deduction);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const entry = await tx.payrollEntry.create({
+        data: {
+          schoolId: school.id,
+          staffName,
+          designation: designation || 'Staff',
+          baseSalary: Number(baseSalary),
+          allowance: Number(allowance),
+          deduction: Number(deduction),
+          netPaid,
+          status: 'DISBURSED',
+        },
+      });
+
+      // Post Payroll Ledger Entry (Debit Payroll Expense, Credit Bank)
+      await tx.ledgerEntry.createMany({
+        data: [
+          {
+            schoolId: school.id,
+            account: 'PAYROLL',
+            type: 'DEBIT',
+            amount: netPaid,
+            description: `Salary disbursement for ${staffName} (${designation})`,
+          },
+          {
+            schoolId: school.id,
+            account: 'BANK',
+            type: 'CREDIT',
+            amount: netPaid,
+            description: `Bank payment for salary of ${staffName}`,
+          },
+        ],
+      });
+
+      return entry;
+    });
+
+    await writeAudit(req.user.id, 'PAYROLL_DISBURSED', 'PayrollEntry', result.id, null, { staffName, netPaid });
+    res.status(201).json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to disburse payroll' });
+  }
+});
+
+app.get('/api/ledger/double-entry', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (_req, res) => {
+  try {
+    const entries = await prisma.ledgerEntry.findMany({
+      include: { transaction: { include: { invoice: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    res.json({ success: true, data: entries });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch double-entry ledger' });
+  }
+});
+
 // DASHBOARD
 app.get('/api/dashboard/stats', authenticateToken, async (req: any, res) => {
   try {
@@ -424,7 +541,7 @@ app.get('/api/invoices/:id/pdf', authenticateToken, async (req: any, res: any) =
   }
 });
 
-// ENTERPRISE MODULES (RFID POS, WALLET, INVENTORY, TRANSPORT)
+// ENTERPRISE MODULES
 app.get('/api/pos/student-wallet/:rfidOrCode', authenticateToken, async (req: any, res: any) => {
   try {
     const { rfidOrCode } = req.params;
@@ -608,6 +725,8 @@ app.get('/api/students/:id', authenticateToken, async (req, res) => {
         class: true,
         invoices: { include: { items: { include: { feeType: true } }, transactions: true } },
         waivers: true,
+        scholarships: true,
+        cafeteriaTxs: true,
       },
     });
     if (!student) return res.status(404).json({ error: 'Student not found' });
@@ -1097,6 +1216,7 @@ app.get('/api/parent/my-children', authenticateToken, requireRole('PARENT'), asy
           include: { transactions: true },
           orderBy: { createdAt: 'desc' },
         },
+        scholarships: true,
       },
     });
 
@@ -1139,10 +1259,13 @@ app.get('/api/settings/school', authenticateToken, async (_req, res) => {
 
 app.put('/api/settings/school', authenticateToken, requireRole('SUPER_ADMIN'), async (req: any, res) => {
   try {
-    const { name, address, logoUrl } = req.body;
+    const { name, address, logoUrl, taxId, affiliationNo } = req.body;
     const school = await prisma.school.findFirst();
     if (!school) return res.status(404).json({ error: 'School not found' });
-    const updated = await prisma.school.update({ where: { id: school.id }, data: { name, address, logoUrl } });
+    const updated = await prisma.school.update({
+      where: { id: school.id },
+      data: { name, address, logoUrl, taxId, affiliationNo },
+    });
     await writeAudit(req.user.id, 'SCHOOL_UPDATED', 'School', school.id, null, req.body);
     res.json({ success: true, data: updated });
   } catch (err) {

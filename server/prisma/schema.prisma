@@ -12,6 +12,8 @@ model School {
   name          String
   address       String
   logoUrl       String?
+  taxId         String?         @default("TAX-9912083")
+  affiliationNo String?         @default("SIS-882194")
   createdAt     DateTime        @default(now())
   users         User[]
   feeTypes      FeeType[]
@@ -23,6 +25,8 @@ model School {
   inventories   InventoryItem[]
   busRoutes     BusRoute[]
   cafeteriaTxs  CafeteriaTx[]
+  scholarships  Scholarship[]
+  payrollEntries PayrollEntry[]
 }
 
 model User {
@@ -50,26 +54,27 @@ model Class {
 }
 
 model Student {
-  id          String        @id @default(cuid())
-  schoolId    String
-  school      School        @relation(fields: [schoolId], references: [id])
-  classId     String
-  class       Class         @relation(fields: [classId], references: [id])
-  studentCode String        @unique
-  name        String
-  parentName  String
-  parentEmail String
-  parentPhone String
-  address     String?
-  dob         DateTime?
-  rfidTag     String?       @unique
-  walletBal   Float         @default(0)
-  dailyLimit  Float         @default(500)
-  isActive    Boolean       @default(true)
-  createdAt   DateTime      @default(now())
-  invoices    Invoice[]
-  waivers     Waiver[]
-  cafeteriaTxs CafeteriaTx[]
+  id            String          @id @default(cuid())
+  schoolId      String
+  school        School          @relation(fields: [schoolId], references: [id])
+  classId       String
+  class         Class           @relation(fields: [classId], references: [id])
+  studentCode   String          @unique
+  name          String
+  parentName    String
+  parentEmail   String
+  parentPhone   String
+  address       String?
+  dob           DateTime?
+  rfidTag       String?         @unique
+  walletBal     Float           @default(0)
+  dailyLimit    Float           @default(500)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  invoices      Invoice[]
+  waivers       Waiver[]
+  cafeteriaTxs  CafeteriaTx[]
+  scholarships  Scholarship[]
 
   @@index([parentEmail])
 }
@@ -126,7 +131,7 @@ model Transaction {
   invoiceId         String
   invoice           Invoice       @relation(fields: [invoiceId], references: [id])
   amount            Float
-  method            String        // UPI | CASH | CHEQUE | RAZORPAY | BANK_TRANSFER
+  method            String        // UPI | CASH | CHEQUE | RAZORPAY | BANK_TRANSFER | WALLET
   status            String        @default("PENDING") // PENDING | SUCCESS | FAILED | REFUNDED | UNDER_REVIEW
   idempotencyKey    String?       @unique
   referenceNo       String?
@@ -152,7 +157,7 @@ model LedgerEntry {
   school        School       @relation(fields: [schoolId], references: [id])
   transactionId String?
   transaction   Transaction? @relation(fields: [transactionId], references: [id])
-  account       String       // CASH | BANK | ACCOUNTS_RECEIVABLE | REVENUE | LATE_FEE_INCOME | WALLET
+  account       String       // CASH | BANK | ACCOUNTS_RECEIVABLE | REVENUE | LATE_FEE_INCOME | WALLET | PAYROLL
   type          String       // DEBIT | CREDIT
   amount        Float
   description   String
@@ -163,7 +168,7 @@ model InventoryItem {
   id          String   @id @default(cuid())
   schoolId    String
   school      School   @relation(fields: [schoolId], references: [id])
-  name        String   // e.g., Blazer Size 32, Math Textbook Grade 10
+  name        String
   category    String   // UNIFORM | TEXTBOOK | STATIONERY
   quantity    Int      @default(0)
   unitPrice   Float
@@ -175,7 +180,7 @@ model BusRoute {
   id          String   @id @default(cuid())
   schoolId    String
   school      School   @relation(fields: [schoolId], references: [id])
-  routeName   String   // Route A - Sector 62
+  routeName   String
   driverName  String
   driverPhone String
   monthlyFee  Float
@@ -191,6 +196,32 @@ model CafeteriaTx {
   itemLabel String
   amount    Float
   createdAt DateTime @default(now())
+}
+
+model Scholarship {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id])
+  title       String   // e.g. Academic Merit 2026, Sibling Concession
+  percentage  Float    // e.g. 15.0 for 15%
+  grantedBy   String
+  createdAt   DateTime @default(now())
+}
+
+model PayrollEntry {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id])
+  staffName   String
+  designation String
+  baseSalary  Float
+  allowance   Float    @default(0)
+  deduction   Float    @default(0)
+  netPaid     Float
+  payDate     DateTime @default(now())
+  status      String   @default("DISBURSED")
 }
 
 model Waiver {
