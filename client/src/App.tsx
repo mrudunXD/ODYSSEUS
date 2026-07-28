@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Navbar } from './components/layout/Navbar';
 import { LandingPage } from './pages/LandingPage';
@@ -20,81 +20,99 @@ import { useAuthStore } from './store/authStore';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
+    queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 30_000 },
   },
 });
 
-export const App: React.FC = () => {
+// Route guard for any authenticated user
+const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuthStore();
+  const location = useLocation();
+  if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
+  return <>{children}</>;
+};
+
+// Route guard: only admin roles (blocks PARENT)
+const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, user } = useAuthStore();
+  const location = useLocation();
+  if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (user?.role === 'PARENT') return <Navigate to="/parent-portal" replace />;
+  return <>{children}</>;
+};
+
+// Route guard: only PARENT
+const ParentRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, user } = useAuthStore();
+  const location = useLocation();
+  if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (user?.role !== 'PARENT') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+};
+
+// Role-based home redirect
+const RoleBasedHome: React.FC = () => {
+  const { isAuthenticated, user } = useAuthStore();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role === 'PARENT') return <Navigate to="/parent-portal" replace />;
+  return <Navigate to="/dashboard" replace />;
+};
+
+const AppShell: React.FC = () => {
+  const { isAuthenticated, user } = useAuthStore();
+  const location = useLocation();
+
+  // Don't show navbar on landing or login pages
+  const hideNavbar = ['/', '/login'].includes(location.pathname);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <div className="min-h-screen bg-[#F5F5F0] text-[#1A1A1A]">
-          {isAuthenticated && <Navbar />}
+    <div className="min-h-screen bg-[#F5F5F0] text-[#1A1A1A]">
+      {isAuthenticated && !hideNavbar && <Navbar />}
+      <Routes>
+        {/* Public */}
+        <Route path="/" element={<LandingPage />} />
+        <Route
+          path="/login"
+          element={
+            isAuthenticated ? (
+              user?.role === 'PARENT' ? <Navigate to="/parent-portal" replace /> : <Navigate to="/dashboard" replace />
+            ) : (
+              <Login />
+            )
+          }
+        />
 
-          <main>
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<Login />} />
-              <Route
-                path="/profile"
-                element={isAuthenticated ? <Profile /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/dashboard"
-                element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/students"
-                element={isAuthenticated ? <Students /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/students/:id"
-                element={isAuthenticated ? <StudentDetail /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/fees"
-                element={isAuthenticated ? <Fees /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/invoices"
-                element={isAuthenticated ? <Invoices /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/payments"
-                element={isAuthenticated ? <Payments /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/defaulters"
-                element={isAuthenticated ? <Defaulters /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/reports"
-                element={isAuthenticated ? <Reports /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/users"
-                element={isAuthenticated ? <Users /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/settings"
-                element={isAuthenticated ? <Settings /> : <Navigate to="/login" replace />}
-              />
-              <Route
-                path="/parent-portal"
-                element={isAuthenticated ? <ParentPortal /> : <Navigate to="/login" replace />}
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
-        </div>
-      </BrowserRouter>
-    </QueryClientProvider>
+        {/* Admin Roles only */}
+        <Route path="/dashboard" element={<AdminRoute><Dashboard /></AdminRoute>} />
+        <Route path="/students" element={<AdminRoute><Students /></AdminRoute>} />
+        <Route path="/students/:id" element={<AdminRoute><StudentDetail /></AdminRoute>} />
+        <Route path="/fees" element={<AdminRoute><Fees /></AdminRoute>} />
+        <Route path="/invoices" element={<AdminRoute><Invoices /></AdminRoute>} />
+        <Route path="/payments" element={<AdminRoute><Payments /></AdminRoute>} />
+        <Route path="/defaulters" element={<AdminRoute><Defaulters /></AdminRoute>} />
+        <Route path="/reports" element={<AdminRoute><Reports /></AdminRoute>} />
+        <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
+        <Route path="/settings" element={<AdminRoute><Settings /></AdminRoute>} />
+
+        {/* Parent only */}
+        <Route path="/parent-portal" element={<ParentRoute><ParentPortal /></ParentRoute>} />
+
+        {/* Authenticated any role */}
+        <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+
+        {/* Catch-all */}
+        <Route path="*" element={<RoleBasedHome />} />
+      </Routes>
+    </div>
   );
 };
+
+export const App: React.FC = () => (
+  <QueryClientProvider client={queryClient}>
+    <BrowserRouter>
+      <AppShell />
+    </BrowserRouter>
+  </QueryClientProvider>
+);
 
 export default App;

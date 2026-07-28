@@ -1,34 +1,38 @@
 import { create } from 'zustand';
-import { User, Role } from '../types';
+import { persist } from 'zustand/middleware';
+import { User } from '../types';
 
 interface AuthState {
   user: User | null;
   token: string | null;
+  refreshToken: string | null;
   isAuthenticated: boolean;
-  login: (user: User, token: string) => void;
+  login: (user: User, token: string, refreshToken?: string) => void;
   logout: () => void;
-  setRole: (role: Role) => void;
+  setUser: (user: User) => void;
 }
 
-const initialUser: User = {
-  id: 'USR-ADMIN-01',
-  schoolId: 'SCH-SPRINGFIELD-01',
-  name: 'Malik',
-  email: 'malik@springfield.edu',
-  role: 'SUPER_ADMIN',
-  avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=120',
-  isActive: true,
-  createdAt: new Date().toISOString(),
-};
-
-export const useAuthStore = create<AuthState>((set) => ({
-  user: initialUser,
-  token: 'jwt_mock_token_super_admin_2026',
-  isAuthenticated: true,
-  login: (user, token) => set({ user, token, isAuthenticated: true }),
-  logout: () => set({ user: null, token: null, isAuthenticated: false }),
-  setRole: (role) =>
-    set((state) => ({
-      user: state.user ? { ...state.user, role } : null,
-    })),
-}));
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      token: null,
+      refreshToken: null,
+      isAuthenticated: false,
+      login: (user, token, refreshToken) =>
+        set({ user, token, refreshToken: refreshToken ?? null, isAuthenticated: true }),
+      logout: () =>
+        set({ user: null, token: null, refreshToken: null, isAuthenticated: false }),
+      setUser: (user) => set({ user }),
+    }),
+    {
+      name: 'schoolfin-auth',
+      partialize: (state) => ({
+        user: state.user,
+        token: state.token,
+        refreshToken: state.refreshToken,
+        isAuthenticated: state.isAuthenticated,
+      }),
+    }
+  )
+);
