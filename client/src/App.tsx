@@ -58,6 +58,8 @@ const RoleBasedHome: React.FC = () => {
   return <Navigate to="/dashboard" replace />;
 };
 
+import { ToastContainer } from './components/ui/ToastContainer';
+
 const AppShell: React.FC = () => {
   const { isAuthenticated, user } = useAuthStore();
   const location = useLocation();
@@ -68,6 +70,7 @@ const AppShell: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F5F5F0] text-[#1A1A1A]">
       {isAuthenticated && !hideNavbar && <Navbar />}
+      <ToastContainer />
       <Routes>
         {/* Public */}
         <Route path="/" element={<LandingPage />} />

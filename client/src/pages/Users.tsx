@@ -1,67 +1,91 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { PageWrapper } from '../components/layout/PageWrapper';
 import { RoleGuard } from '../components/layout/RoleGuard';
-import { UserPlus, ShieldCheck, Trash2, X, Check } from 'lucide-react';
+import { apiClient } from '../api/client';
+import { useToastStore } from '../store/toastStore';
+import { UserPlus, Trash2, X, RefreshCw, Lock } from 'lucide-react';
 import { User, Role } from '../types';
 
 export const Users: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([
-    {
-      id: 'USR-01',
-      schoolId: 'SCH-01',
-      name: 'Malik',
-      email: 'malik@springfield.edu',
-      role: 'SUPER_ADMIN',
-      isActive: true,
-      createdAt: '2025-09-01T00:00:00Z',
-    },
-    {
-      id: 'USR-02',
-      schoolId: 'SCH-01',
-      name: 'Elena Martinez',
-      email: 'accountant@springfield.edu',
-      role: 'ACCOUNTANT',
-      isActive: true,
-      createdAt: '2025-09-01T00:00:00Z',
-    },
-    {
-      id: 'USR-03',
-      schoolId: 'SCH-01',
-      name: 'Dr. Vikram Kapoor',
-      email: 'principal@springfield.edu',
-      role: 'ADMIN',
-      isActive: true,
-      createdAt: '2025-09-01T00:00:00Z',
-    },
-  ]);
-
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { push } = useToastStore();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('ACCOUNTANT');
 
-  const handleAddUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newUser: User = {
-      id: `USR-${Math.floor(100 + Math.random() * 900)}`,
-      schoolId: 'SCH-01',
-      name,
-      email,
-      role,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-    };
+  const fetchUsers = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiClient.get('/users');
+      if (res.data?.data) {
+        setUsers(res.data.data);
+      }
+    } catch (err: any) {
+      push('error', 'Failed to load user accounts', err.response?.data?.error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [push]);
 
-    setUsers((prev) => [newUser, ...prev]);
-    setIsModalOpen(false);
-    setName('');
-    setEmail('');
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !email || !password || !role) {
+      push('warning', 'Please fill all required user fields');
+      return;
+    }
+    if (password.length < 8) {
+      push('warning', 'Password must be at least 8 characters long');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await apiClient.post('/users', {
+        name,
+        email,
+        password,
+        role,
+      });
+
+      if (res.data?.success) {
+        push('success', `User account created for ${email}`);
+        setIsModalOpen(false);
+        setName('');
+        setEmail('');
+        setPassword('');
+        fetchUsers();
+      }
+    } catch (err: any) {
+      push('error', 'Failed to create user account', err.response?.data?.error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleUserStatus = async (id: string) => {
+    try {
+      const res = await apiClient.put(`/users/${id}/toggle`);
+      if (res.data?.success) {
+        push('success', `User account status updated`);
+        fetchUsers();
+      }
+    } catch (err: any) {
+      push('error', 'Failed to update user account', err.response?.data?.error);
+    }
   };
 
   return (
     <PageWrapper>
       <RoleGuard allowedRoles={['SUPER_ADMIN', 'ADMIN']}>
-        {/* Top Banner */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-[#E5E7EB] card-shadow mb-6">
           <div>
             <h2 className="text-xl font-extrabold text-[#1A1A1A] tracking-tight">
@@ -72,62 +96,86 @@ export const Users: React.FC = () => {
             </p>
           </div>
 
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-[#E85D04] hover:bg-[#C44D00] text-white rounded-2xl text-xs font-extrabold shadow-md shadow-[#E85D04]/20 transition-all cursor-pointer"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Add Staff User</span>
-          </button>
-        </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={fetchUsers}
+              className="p-2.5 bg-white border border-[#E5E7EB] rounded-xl hover:border-[#E85D04]"
+            >
+              <RefreshCw className={`w-4 h-4 text-[#6B7280] ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
 
-        {/* User Data Table */}
-        <div className="bg-white rounded-3xl p-6 border border-[#E5E7EB] card-shadow">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280] uppercase">
-                  <th className="pb-3 pl-2">User Name</th>
-                  <th className="pb-3">Email Address</th>
-                  <th className="pb-3">Assigned RBAC Role</th>
-                  <th className="pb-3">Status</th>
-                  <th className="pb-3 text-right pr-2">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E5E5E5]">
-                {users.map((u) => (
-                  <tr key={u.id} className="hover:bg-[#F5F5F0]">
-                    <td className="py-3.5 pl-2 font-bold text-[#1A1A1A]">{u.name}</td>
-                    <td className="py-3.5 text-[#6B7280]">{u.email}</td>
-                    <td className="py-3.5">
-                      <span className="px-3 py-1 bg-[#FFF0E6] text-[#E85D04] border border-[#E85D04]/20 rounded-full font-extrabold text-[11px]">
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="py-3.5">
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-                        ACTIVE
-                      </span>
-                    </td>
-                    <td className="py-3.5 text-right pr-2">
-                      <button
-                        onClick={() => setUsers((prev) => prev.filter((item) => item.id !== u.id))}
-                        className="p-1.5 text-[#6B7280] hover:text-red-600 hover:bg-red-50 rounded-lg"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#E85D04] hover:bg-[#C44D00] text-white rounded-2xl text-xs font-extrabold shadow-md shadow-[#E85D04]/20 transition-all cursor-pointer"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Add Staff User</span>
+            </button>
           </div>
         </div>
 
-        {/* Add User Modal */}
+        <div className="bg-white rounded-3xl p-6 border border-[#E5E7EB] card-shadow">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-20 gap-3 text-xs text-[#6B7280]">
+              <RefreshCw className="w-5 h-5 animate-spin text-[#E85D04]" />
+              Loading staff accounts from database...
+            </div>
+          ) : users.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm font-bold text-[#1A1A1A]">No users found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280] uppercase">
+                    <th className="pb-3 pl-2">User Name</th>
+                    <th className="pb-3">Email Address</th>
+                    <th className="pb-3">Assigned RBAC Role</th>
+                    <th className="pb-3">Status</th>
+                    <th className="pb-3 text-right pr-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E5E5E5]">
+                  {users.map((u) => (
+                    <tr key={u.id} className="hover:bg-[#F5F5F0]">
+                      <td className="py-3.5 pl-2 font-bold text-[#1A1A1A]">{u.name}</td>
+                      <td className="py-3.5 text-[#6B7280]">{u.email}</td>
+                      <td className="py-3.5">
+                        <span className="px-3 py-1 bg-[#FFF0E6] text-[#E85D04] border border-[#E85D04]/20 rounded-full font-extrabold text-[11px]">
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="py-3.5">
+                        <span
+                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                            u.isActive
+                              ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                              : 'text-rose-700 bg-rose-50 border-rose-200'
+                          }`}
+                        >
+                          {u.isActive ? 'ACTIVE' : 'DISABLED'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 text-right pr-2">
+                        <button
+                          onClick={() => handleToggleUserStatus(u.id)}
+                          className="px-3 py-1 text-xs font-bold bg-[#F5F5F0] border border-[#E5E7EB] hover:border-[#E85D04] rounded-lg transition-colors"
+                        >
+                          {u.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {isModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#E5E7EB] shadow-2xl animate-in zoom-in-95">
+            <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#E5E7EB] shadow-2xl">
               <div className="flex items-center justify-between pb-3 border-b border-[#E5E7EB]">
                 <h3 className="font-extrabold text-[#1A1A1A] text-base">Add Staff User</h3>
                 <button onClick={() => setIsModalOpen(false)} className="text-[#6B7280] hover:text-[#1A1A1A]">
@@ -161,6 +209,18 @@ export const Users: React.FC = () => {
                 </div>
 
                 <div>
+                  <label className="font-bold text-[#1A1A1A] block mb-1">Initial Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Min 8 characters (bcrypt hashed)"
+                    className="w-full bg-[#F5F5F0] border border-[#E5E7EB] rounded-xl p-2.5 font-semibold text-[#1A1A1A]"
+                  />
+                </div>
+
+                <div>
                   <label className="font-bold text-[#1A1A1A] block mb-1">Assign Role</label>
                   <select
                     value={role}
@@ -183,9 +243,10 @@ export const Users: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 bg-[#E85D04] text-white font-extrabold rounded-xl hover:bg-[#C44D00] shadow-md shadow-[#E85D04]/20"
+                    disabled={isSubmitting}
+                    className="px-5 py-2 bg-[#E85D04] text-white font-extrabold rounded-xl hover:bg-[#C44D00] shadow-md shadow-[#E85D04]/20 disabled:opacity-50"
                   >
-                    Create User
+                    {isSubmitting ? 'Creating...' : 'Create User'}
                   </button>
                 </div>
               </form>

@@ -1,93 +1,87 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { PageWrapper } from '../components/layout/PageWrapper';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { formatCurrency } from '../utils/formatCurrency';
 import { formatDate } from '../utils/formatDate';
-import { Search, Plus, FileText, Printer, X, QrCode } from 'lucide-react';
-import { Invoice } from '../types';
+import { apiClient } from '../api/client';
+import { useToastStore } from '../store/toastStore';
+import { RoleGuard } from '../components/layout/RoleGuard';
+import { Search, Plus, FileText, Printer, X, RefreshCw } from 'lucide-react';
+import { Invoice, Student, FeeType } from '../types';
 
 export const Invoices: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [feeTypes, setFeeTypes] = useState<FeeType[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeInvoiceModal, setActiveInvoiceModal] = useState<Invoice | null>(null);
 
-  const [invoices] = useState<Invoice[]>([
-    {
-      id: 'INV-1001',
-      schoolId: 'SCH-01',
-      studentId: 'STU-101',
-      student: {
-        id: 'STU-101',
-        schoolId: 'SCH-01',
-        classId: 'CLS-11A',
-        studentCode: '2025-101',
-        name: 'Aarav Sharma',
-        parentName: 'Rajesh Sharma',
-        parentEmail: 'rajesh.sharma@example.com',
-        parentPhone: '+91 98765 43210',
-        isActive: true,
-        createdAt: '2025-09-01T00:00:00Z',
-        class: { id: 'CLS-11A', schoolId: 'SCH-01', name: 'Class 11', section: 'A' },
-      },
-      invoiceNo: 'INV-2025-001',
-      issueDate: '2025-12-01T00:00:00Z',
-      dueDate: '2025-12-10T00:00:00Z',
-      totalAmount: 17500,
-      paidAmount: 17500,
-      status: 'PAID',
-      createdAt: '2025-12-01T00:00:00Z',
-    },
-    {
-      id: 'INV-1002',
-      schoolId: 'SCH-01',
-      studentId: 'STU-102',
-      student: {
-        id: 'STU-102',
-        schoolId: 'SCH-01',
-        classId: 'CLS-12B',
-        studentCode: '2025-102',
-        name: 'Sofia Martinez',
-        parentName: 'Elena Martinez',
-        parentEmail: 'elena.m@example.com',
-        parentPhone: '+91 98123 45678',
-        isActive: true,
-        createdAt: '2025-09-01T00:00:00Z',
-        class: { id: 'CLS-12B', schoolId: 'SCH-01', name: 'Class 12', section: 'B' },
-      },
-      invoiceNo: 'INV-2025-002',
-      issueDate: '2025-12-01T00:00:00Z',
-      dueDate: '2025-12-10T00:00:00Z',
-      totalAmount: 17500,
-      paidAmount: 10000,
-      status: 'PARTIAL',
-      createdAt: '2025-12-01T00:00:00Z',
-    },
-    {
-      id: 'INV-1003',
-      schoolId: 'SCH-01',
-      studentId: 'STU-103',
-      student: {
-        id: 'STU-103',
-        schoolId: 'SCH-01',
-        classId: 'CLS-10C',
-        studentCode: '2025-103',
-        name: 'Rohan Verma',
-        parentName: 'Vikram Verma',
-        parentEmail: 'vikram.v@example.com',
-        parentPhone: '+91 99887 76655',
-        isActive: true,
-        createdAt: '2025-09-01T00:00:00Z',
-        class: { id: 'CLS-10C', schoolId: 'SCH-01', name: 'Class 10', section: 'C' },
-      },
-      invoiceNo: 'INV-2025-003',
-      issueDate: '2025-11-01T00:00:00Z',
-      dueDate: '2025-11-10T00:00:00Z',
-      totalAmount: 15700,
-      paidAmount: 0,
-      status: 'OVERDUE',
-      createdAt: '2025-11-01T00:00:00Z',
-    },
-  ]);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [selectedFeeTypeIds, setSelectedFeeTypeIds] = useState<string[]>([]);
+  const [dueDate, setDueDate] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { push } = useToastStore();
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [invRes, stuRes, feeRes] = await Promise.all([
+        apiClient.get('/invoices'),
+        apiClient.get('/students'),
+        apiClient.get('/fees'),
+      ]);
+      if (invRes.data?.data) setInvoices(invRes.data.data);
+      if (stuRes.data?.data) setStudents(stuRes.data.data);
+      if (feeRes.data?.data) setFeeTypes(feeRes.data.data);
+    } catch (err: any) {
+      push('error', 'Failed to fetch invoice data', err.response?.data?.error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [push]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleCreateInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudentId || selectedFeeTypeIds.length === 0 || !dueDate) {
+      push('warning', 'Please fill all required fields');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await apiClient.post('/invoices', {
+        studentId: selectedStudentId,
+        feeTypeIds: selectedFeeTypeIds,
+        dueDate,
+      });
+
+      if (res.data?.success) {
+        push('success', 'Invoice generated successfully');
+        setIsCreateModalOpen(false);
+        setSelectedStudentId('');
+        setSelectedFeeTypeIds([]);
+        setDueDate('');
+        fetchData();
+      }
+    } catch (err: any) {
+      push('error', 'Failed to create invoice', err.response?.data?.error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFeeTypeToggle = (id: string) => {
+    setSelectedFeeTypeIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  };
 
   const filteredInvoices = invoices.filter((inv) => {
     const matchesSearch =
@@ -99,7 +93,6 @@ export const Invoices: React.FC = () => {
 
   return (
     <PageWrapper>
-      {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-[#E5E7EB] card-shadow mb-6">
         <div>
           <h2 className="text-xl font-extrabold text-[#1A1A1A] tracking-tight">
@@ -109,12 +102,29 @@ export const Invoices: React.FC = () => {
             Generate printable invoices with embedded UPI QR codes and track payment status.
           </p>
         </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={fetchData}
+            className="p-2.5 bg-white border border-[#E5E7EB] rounded-xl hover:border-[#E85D04]"
+          >
+            <RefreshCw className={`w-4 h-4 text-[#6B7280] ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
+
+          <RoleGuard allowedRoles={['SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT']}>
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#E85D04] hover:bg-[#C44D00] text-white rounded-2xl text-xs font-extrabold shadow-md shadow-[#E85D04]/20 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Generate Invoice</span>
+            </button>
+          </RoleGuard>
+        </div>
       </div>
 
-      {/* Main Table */}
       <div className="bg-white rounded-3xl p-6 border border-[#E5E7EB] card-shadow">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          {/* Status Filters */}
           <div className="flex items-center gap-2 flex-wrap">
             {['ALL', 'UNPAID', 'PARTIAL', 'PAID', 'OVERDUE'].map((st) => (
               <button
@@ -143,50 +153,138 @@ export const Invoices: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280] uppercase tracking-wider">
-                <th className="pb-3 pl-2">Invoice No</th>
-                <th className="pb-3">Student Name</th>
-                <th className="pb-3">Issue Date</th>
-                <th className="pb-3">Due Date</th>
-                <th className="pb-3">Total Amount</th>
-                <th className="pb-3">Paid Amount</th>
-                <th className="pb-3">Status</th>
-                <th className="pb-3 text-right pr-2">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#E5E5E5] text-xs">
-              {filteredInvoices.map((inv) => (
-                <tr key={inv.id} className="hover:bg-[#F5F5F0] transition-colors">
-                  <td className="py-3.5 pl-2 font-mono font-bold text-[#1A1A1A]">{inv.invoiceNo}</td>
-                  <td className="py-3.5 font-bold text-[#1A1A1A]">{inv.student?.name}</td>
-                  <td className="py-3.5 font-semibold text-[#6B7280]">{formatDate(inv.issueDate)}</td>
-                  <td className="py-3.5 font-semibold text-[#6B7280]">{formatDate(inv.dueDate)}</td>
-                  <td className="py-3.5 font-extrabold text-[#1A1A1A]">{formatCurrency(inv.totalAmount)}</td>
-                  <td className="py-3.5 font-extrabold text-[#16A34A]">{formatCurrency(inv.paidAmount)}</td>
-                  <td className="py-3.5"><StatusBadge status={inv.status} /></td>
-                  <td className="py-3.5 text-right pr-2">
-                    <button
-                      onClick={() => setActiveInvoiceModal(inv)}
-                      className="p-1.5 text-[#6B7280] hover:text-[#E85D04] hover:bg-[#FFF0E6] rounded-lg transition-colors"
-                      title="View Printable PDF Invoice"
-                    >
-                      <FileText className="w-4 h-4" />
-                    </button>
-                  </td>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20 gap-3 text-xs text-[#6B7280]">
+            <RefreshCw className="w-5 h-5 animate-spin text-[#E85D04]" />
+            Loading invoices...
+          </div>
+        ) : filteredInvoices.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-sm font-bold text-[#1A1A1A]">No invoices found</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-[#E5E7EB] text-[11px] font-bold text-[#6B7280] uppercase tracking-wider">
+                  <th className="pb-3 pl-2">Invoice No</th>
+                  <th className="pb-3">Student Name</th>
+                  <th className="pb-3">Issue Date</th>
+                  <th className="pb-3">Due Date</th>
+                  <th className="pb-3">Total Amount</th>
+                  <th className="pb-3">Paid Amount</th>
+                  <th className="pb-3">Status</th>
+                  <th className="pb-3 text-right pr-2">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-[#E5E5E5] text-xs">
+                {filteredInvoices.map((inv) => (
+                  <tr key={inv.id} className="hover:bg-[#F5F5F0] transition-colors">
+                    <td className="py-3.5 pl-2 font-mono font-bold text-[#1A1A1A]">{inv.invoiceNo}</td>
+                    <td className="py-3.5 font-bold text-[#1A1A1A]">{inv.student?.name}</td>
+                    <td className="py-3.5 font-semibold text-[#6B7280]">{formatDate(inv.issueDate)}</td>
+                    <td className="py-3.5 font-semibold text-[#6B7280]">{formatDate(inv.dueDate)}</td>
+                    <td className="py-3.5 font-extrabold text-[#1A1A1A]">{formatCurrency(inv.totalAmount)}</td>
+                    <td className="py-3.5 font-extrabold text-[#16A34A]">{formatCurrency(inv.paidAmount)}</td>
+                    <td className="py-3.5"><StatusBadge status={inv.status} /></td>
+                    <td className="py-3.5 text-right pr-2">
+                      <button
+                        onClick={() => setActiveInvoiceModal(inv)}
+                        className="p-1.5 text-[#6B7280] hover:text-[#E85D04] hover:bg-[#FFF0E6] rounded-lg transition-colors"
+                        title="View Printable PDF Invoice"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Printable Invoice Modal with Scannable UPI QR */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#E5E7EB] shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5E7EB]">
+              <h3 className="font-extrabold text-[#1A1A1A] text-base">Generate Student Invoice</h3>
+              <button onClick={() => setIsCreateModalOpen(false)} className="text-[#6B7280] hover:text-[#1A1A1A]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateInvoice} className="space-y-4 pt-4 text-xs">
+              <div>
+                <label className="font-bold text-[#1A1A1A] block mb-1">Select Student</label>
+                <select
+                  required
+                  value={selectedStudentId}
+                  onChange={(e) => setSelectedStudentId(e.target.value)}
+                  className="w-full bg-[#F5F5F0] border border-[#E5E7EB] rounded-xl p-2.5 font-semibold text-[#1A1A1A]"
+                >
+                  <option value="">-- Choose Student --</option>
+                  {students.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.studentCode}) - {s.class?.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-[#1A1A1A] block mb-1">Select Fee Heads</label>
+                <div className="max-h-36 overflow-y-auto bg-[#F5F5F0] border border-[#E5E7EB] rounded-xl p-2 space-y-1">
+                  {feeTypes.map((ft) => (
+                    <label key={ft.id} className="flex items-center gap-2 p-1.5 hover:bg-white rounded-lg cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedFeeTypeIds.includes(ft.id)}
+                        onChange={() => handleFeeTypeToggle(ft.id)}
+                        className="rounded border-[#E5E7EB] text-[#E85D04] focus:ring-[#E85D04]"
+                      />
+                      <span className="font-semibold text-[#1A1A1A] flex-1">{ft.name}</span>
+                      <span className="font-bold text-[#E85D04]">{formatCurrency(ft.amount)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-[#1A1A1A] block mb-1">Due Date</label>
+                <input
+                  type="date"
+                  required
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full bg-[#F5F5F0] border border-[#E5E7EB] rounded-xl p-2.5 font-semibold text-[#1A1A1A]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-[#E5E7EB]">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="px-4 py-2 bg-[#F5F5F0] border border-[#E5E7EB] text-[#1A1A1A] font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-[#E85D04] text-white font-extrabold rounded-xl hover:bg-[#C44D00] shadow-md shadow-[#E85D04]/20 disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Generating...' : 'Create Invoice'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {activeInvoiceModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-8 max-w-lg w-full border border-[#E5E7EB] shadow-2xl animate-in zoom-in-95">
+          <div className="bg-white rounded-3xl p-8 max-w-lg w-full border border-[#E5E7EB] shadow-2xl">
             <div className="flex items-center justify-between pb-4 border-b border-[#E5E7EB] print:hidden">
               <span className="text-xs font-extrabold text-[#16A34A] bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
                 Printable PDF Invoice
@@ -244,10 +342,19 @@ export const Invoices: React.FC = () => {
                   <span>Item Description</span>
                   <span>Amount</span>
                 </div>
-                <div className="flex justify-between font-semibold">
-                  <span>Tuition & Smart Lab Quarterly Fee</span>
-                  <span>{formatCurrency(activeInvoiceModal.totalAmount)}</span>
-                </div>
+                {activeInvoiceModal.items && activeInvoiceModal.items.length > 0 ? (
+                  activeInvoiceModal.items.map((item) => (
+                    <div key={item.id} className="flex justify-between font-semibold">
+                      <span>{item.label}</span>
+                      <span>{formatCurrency(item.amount)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex justify-between font-semibold">
+                    <span>Tuition & General Fee Head</span>
+                    <span>{formatCurrency(activeInvoiceModal.totalAmount)}</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-between pt-2">
