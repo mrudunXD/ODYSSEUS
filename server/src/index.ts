@@ -12,10 +12,10 @@ import sanitizeHtml from 'sanitize-html';
 import winston from 'winston';
 import { body, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
+import { generateInvoicePDF } from './pdfGenerator.js';
 
 dotenv.config();
 
-// Standard Logger Setup
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
@@ -26,24 +26,21 @@ const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Security Strict Env Enforcements
 const JWT_SECRET = process.env.JWT_SECRET || 'schoolfin_jwt_secret_key_2026_super_secure';
 const ACCESS_TOKEN_EXPIRY = '15m';
-const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_TIWVCWyzGuKOq8';
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'yQ1CqeJoYcf07z80S2wLlKAm';
 
 const razorpay = new Razorpay({ key_id: RAZORPAY_KEY_ID, key_secret: RAZORPAY_KEY_SECRET });
 
-// Middlewares
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 app.use(cors({ origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'] }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Global Rate Limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -58,7 +55,6 @@ const apiLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 
-// Input Sanitizer Middleware
 const sanitizeInputs = (req: any, _res: any, next: any) => {
   if (req.body) {
     for (const key in req.body) {
@@ -72,7 +68,6 @@ const sanitizeInputs = (req: any, _res: any, next: any) => {
 
 app.use(sanitizeInputs);
 
-// ─── UTILITIES & HELPERS ───────────────────────────────────────────────────
 const issueAccessToken = (user: { id: string; email: string; role: string; name: string }) =>
   jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, {
     expiresIn: ACCESS_TOKEN_EXPIRY,
@@ -85,7 +80,6 @@ const createRefreshToken = async (userId: string) => {
   return token;
 };
 
-// Double-Entry Accounting Ledger Helper
 const createLedgerEntries = async (
   tx: any,
   transactionId: string,
@@ -94,7 +88,7 @@ const createLedgerEntries = async (
   method: string,
   description: string
 ) => {
-  const debitAccount = method === 'CASH' ? 'CASH' : 'BANK';
+  const debitAccount = method === 'CASH' ? 'CASH' : method === 'WALLET' ? 'WALLET' : 'BANK';
   await tx.ledgerEntry.createMany({
     data: [
       {
@@ -117,7 +111,6 @@ const createLedgerEntries = async (
   });
 };
 
-// ─── MIDDLEWARES ─────────────────────────────────────────────────────────────
 const authenticateToken = (req: any, res: any, next: any) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader?.split(' ')[1];
@@ -151,10 +144,9 @@ const writeAudit = async (userId: string, action: string, entity: string, entity
         newValue: newValue ? JSON.stringify(newValue) : null,
       },
     });
-  } catch (_) { /* non-blocking */ }
+  } catch (_) {}
 };
 
-// ─── HEALTH PROBES ───────────────────────────────────────────────────────────
 app.get('/healthz', (_req, res) => res.json({ status: 'UP', timestamp: new Date() }));
 app.get('/readyz', async (_req, res) => {
   try {
@@ -165,7 +157,7 @@ app.get('/readyz', async (_req, res) => {
   }
 });
 
-// ─── AUTHENTICATION ROUTES ───────────────────────────────────────────────────
+// AUTH
 app.post('/api/auth/login', authLimiter, [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 6 }),
@@ -221,7 +213,6 @@ app.post('/api/auth/refresh', async (req, res) => {
     if (!stored.user.isActive)
       return res.status(401).json({ error: 'Account has been disabled' });
 
-    // Rotate refresh token for security
     await prisma.refreshToken.delete({ where: { id: stored.id } });
     const newRefreshToken = await createRefreshToken(stored.user.id);
     const accessToken = issueAccessToken(stored.user);
@@ -310,7 +301,7 @@ app.put('/api/auth/profile', authenticateToken, async (req: any, res) => {
   }
 });
 
-// ─── DASHBOARD STATS ─────────────────────────────────────────────────────────
+// DASHBOARD
 app.get('/api/dashboard/stats', authenticateToken, async (req: any, res) => {
   try {
     const now = new Date();
@@ -414,7 +405,113 @@ app.get('/api/dashboard/chart-data', authenticateToken, async (_req, res) => {
   }
 });
 
-// ─── STUDENTS API ─────────────────────────────────────────────────────────────
+// REAL PDF INVOICE DOWNLOAD
+app.get('/api/invoices/:id/pdf', authenticateToken, async (req: any, res: any) => {
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+      include: { student: true, items: true },
+    });
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    const pdfBuffer = await generateInvoicePDF(invoice);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=${invoice.invoiceNo}.pdf`);
+    res.send(pdfBuffer);
+  } catch (err: any) {
+    logger.error('PDF Generation Error', { error: err.message });
+    res.status(500).json({ error: 'Failed to generate PDF receipt' });
+  }
+});
+
+// ENTERPRISE MODULES (RFID POS, WALLET, INVENTORY, TRANSPORT)
+app.get('/api/pos/student-wallet/:rfidOrCode', authenticateToken, async (req: any, res: any) => {
+  try {
+    const { rfidOrCode } = req.params;
+    const student = await prisma.student.findFirst({
+      where: { OR: [{ rfidTag: rfidOrCode }, { studentCode: rfidOrCode }] },
+      include: { class: true },
+    });
+    if (!student) return res.status(404).json({ error: 'Student card/code not found' });
+    res.json({ success: true, data: student });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to lookup student wallet' });
+  }
+});
+
+app.post('/api/pos/cafeteria-checkout', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT', 'TEACHER'), async (req: any, res: any) => {
+  try {
+    const { studentId, itemLabel, amount } = req.body;
+    if (!studentId || !amount) return res.status(400).json({ error: 'Student ID and amount required' });
+
+    const school = await prisma.school.findFirst();
+    const student = await prisma.student.findUnique({ where: { id: studentId } });
+    if (!school || !student) return res.status(404).json({ error: 'Student not found' });
+
+    if (student.walletBal < Number(amount))
+      return res.status(400).json({ error: `Insufficient campus wallet balance. Available: ₹${student.walletBal}` });
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedStudent = await tx.student.update({
+        where: { id: studentId },
+        data: { walletBal: { decrement: Number(amount) } },
+      });
+
+      const cafeteriaTx = await tx.cafeteriaTx.create({
+        data: {
+          schoolId: school.id,
+          studentId,
+          itemLabel: itemLabel || 'Cafeteria Order',
+          amount: Number(amount),
+        },
+      });
+
+      return { updatedStudent, cafeteriaTx };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Cafeteria transaction failed' });
+  }
+});
+
+app.post('/api/pos/topup-wallet', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (req: any, res: any) => {
+  try {
+    const { studentId, amount } = req.body;
+    if (!studentId || !amount || Number(amount) <= 0)
+      return res.status(400).json({ error: 'Valid student ID and positive topup amount required' });
+
+    const updated = await prisma.student.update({
+      where: { id: studentId },
+      data: { walletBal: { increment: Number(amount) } },
+    });
+
+    await writeAudit(req.user.id, 'WALLET_TOPUP', 'Student', studentId, null, { amount });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to topup campus wallet' });
+  }
+});
+
+app.get('/api/inventory', authenticateToken, async (_req, res) => {
+  try {
+    const items = await prisma.inventoryItem.findMany({ orderBy: { name: 'asc' } });
+    res.json({ success: true, data: items });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch inventory' });
+  }
+});
+
+app.get('/api/transport/routes', authenticateToken, async (_req, res) => {
+  try {
+    const routes = await prisma.busRoute.findMany({ orderBy: { routeName: 'asc' } });
+    res.json({ success: true, data: routes });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch bus routes' });
+  }
+});
+
+// STUDENTS
 app.get('/api/students', authenticateToken, async (_req, res) => {
   try {
     const students = await prisma.student.findMany({
@@ -464,6 +561,8 @@ app.post('/api/students', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN',
         parentName: (parentName || '').trim(),
         parentEmail: parentEmail.toLowerCase().trim(),
         parentPhone: (parentPhone || '').trim(),
+        rfidTag: `RFID-${Math.floor(100000 + Math.random() * 900000)}`,
+        walletBal: 500,
       },
       include: { class: true },
     });
@@ -518,7 +617,7 @@ app.get('/api/students/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// ─── CLASSES API ─────────────────────────────────────────────────────────────
+// CLASSES
 app.get('/api/classes', authenticateToken, async (_req, res) => {
   try {
     const classes = await prisma.class.findMany({ orderBy: { name: 'asc' } });
@@ -540,7 +639,7 @@ app.post('/api/classes', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'),
   }
 });
 
-// ─── FEE TYPES API ───────────────────────────────────────────────────────────
+// FEE TYPES
 app.get('/api/fees', authenticateToken, async (_req, res) => {
   try {
     const fees = await prisma.feeType.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });
@@ -588,7 +687,7 @@ app.delete('/api/fees/:id', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN
   }
 });
 
-// ─── INVOICES API ────────────────────────────────────────────────────────────
+// INVOICES
 app.get('/api/invoices', authenticateToken, async (req: any, res) => {
   try {
     const where: any = {};
@@ -685,7 +784,7 @@ app.delete('/api/invoices/:id', authenticateToken, requireRole('SUPER_ADMIN', 'A
   }
 });
 
-// ─── TRANSACTIONS / PAYMENTS API (Transactional + Double-Entry Ledger) ───────
+// TRANSACTIONS / PAYMENTS
 app.get('/api/transactions', authenticateToken, async (req: any, res) => {
   try {
     const where: any = {};
@@ -711,7 +810,6 @@ app.post('/api/payments/record', authenticateToken, requireRole('SUPER_ADMIN', '
     const { invoiceId, method, amount, referenceNo, notes, chequeNo, chequeBank, upiRef, idempotencyKey } = req.body;
     if (!invoiceId || !method || !amount) return res.status(400).json({ error: 'Invoice ID, method, and amount are required' });
 
-    // Idempotency check
     if (idempotencyKey) {
       const existingTx = await prisma.transaction.findUnique({ where: { idempotencyKey } });
       if (existingTx) return res.json({ success: true, data: existingTx, note: 'Idempotent replay' });
@@ -721,7 +819,6 @@ app.post('/api/payments/record', authenticateToken, requireRole('SUPER_ADMIN', '
     const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId }, include: { student: true } });
     if (!school || !invoice) return res.status(400).json({ error: 'Invoice not found' });
 
-    // Atomic DB Transaction with Double-Entry Ledger
     const result = await prisma.$transaction(async (tx) => {
       const newPaid = invoice.paidAmount + Number(amount);
       const newStatus = newPaid >= invoice.totalAmount ? 'PAID' : 'PARTIAL';
@@ -745,7 +842,6 @@ app.post('/api/payments/record', authenticateToken, requireRole('SUPER_ADMIN', '
         },
       });
 
-      // Post Double-Entry Ledger entries
       await createLedgerEntries(
         tx,
         transaction.id,
@@ -766,7 +862,7 @@ app.post('/api/payments/record', authenticateToken, requireRole('SUPER_ADMIN', '
   }
 });
 
-// ─── RAZORPAY ─────────────────────────────────────────────────────────────
+// RAZORPAY
 app.post('/api/create-order', authenticateToken, async (req, res) => {
   try {
     const { amount, currency = 'INR', receipt } = req.body;
@@ -872,7 +968,7 @@ app.post('/api/verify-payment', authenticateToken, async (req: any, res) => {
   }
 });
 
-// ─── DEFAULTERS ───────────────────────────────────────────────────────────────
+// DEFAULTERS
 app.get('/api/defaulters', authenticateToken, async (_req, res) => {
   try {
     const now = new Date();
@@ -916,7 +1012,7 @@ app.get('/api/defaulters', authenticateToken, async (_req, res) => {
   }
 });
 
-// ─── WAIVERS ─────────────────────────────────────────────────────────────────
+// WAIVERS
 app.post('/api/waivers', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: any, res) => {
   try {
     const { studentId, invoiceId, amount, reason } = req.body;
@@ -941,7 +1037,7 @@ app.post('/api/waivers', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'),
   }
 });
 
-// ─── USERS MANAGEMENT ────────────────────────────────────────────────────────
+// USERS
 app.get('/api/users', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'), async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
@@ -990,7 +1086,7 @@ app.put('/api/users/:id/toggle', authenticateToken, requireRole('SUPER_ADMIN'), 
   }
 });
 
-// ─── PARENT PORTAL ───────────────────────────────────────────────────────────
+// PARENT PORTAL
 app.get('/api/parent/my-children', authenticateToken, requireRole('PARENT'), async (req: any, res) => {
   try {
     const children = await prisma.student.findMany({
@@ -1017,7 +1113,7 @@ app.get('/api/parent/my-children', authenticateToken, requireRole('PARENT'), asy
   }
 });
 
-// ─── AUDIT LOGS ──────────────────────────────────────────────────────────────
+// AUDIT LOGS
 app.get('/api/audit-logs', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'), async (_req, res) => {
   try {
     const logs = await prisma.auditLog.findMany({
@@ -1031,7 +1127,7 @@ app.get('/api/audit-logs', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'
   }
 });
 
-// ─── SCHOOL SETTINGS ─────────────────────────────────────────────────────────
+// SCHOOL SETTINGS
 app.get('/api/settings/school', authenticateToken, async (_req, res) => {
   try {
     const school = await prisma.school.findFirst();
@@ -1054,7 +1150,7 @@ app.put('/api/settings/school', authenticateToken, requireRole('SUPER_ADMIN'), a
   }
 });
 
-// ─── REPORTS ─────────────────────────────────────────────────────────────────
+// REPORTS
 app.get('/api/reports/summary', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (_req, res) => {
   try {
     const [totalRevenue, pendingAmount, overdueCount, paidCount, totalStudents, byMethod] = await Promise.all([
@@ -1082,12 +1178,10 @@ app.get('/api/reports/summary', authenticateToken, requireRole('SUPER_ADMIN', 'A
   }
 });
 
-// ─── START SERVER ────────────────────────────────────────────────────────────
 const server = app.listen(PORT, () => {
   logger.info(`✓ SchoolFin Production Enterprise API running on port ${PORT}`);
 });
 
-// Graceful Shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM signal received: closing HTTP server');
   server.close(() => {
