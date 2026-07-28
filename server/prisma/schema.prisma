@@ -118,6 +118,7 @@ model Transaction {
   amount            Float
   method            String    // UPI | CASH | CHEQUE | RAZORPAY | BANK_TRANSFER
   status            String    @default("PENDING") // PENDING | SUCCESS | FAILED | REFUNDED | UNDER_REVIEW
+  referenceNo       String?
   razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?

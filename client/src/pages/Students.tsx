@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PageWrapper } from '../components/layout/PageWrapper';
 import { RoleGuard } from '../components/layout/RoleGuard';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { formatCurrency } from '../utils/formatCurrency';
-import { Search, Plus, Upload, Eye, Trash2, X, Download } from 'lucide-react';
+import { apiClient } from '../api/client';
+import { Search, Plus, Upload, Eye, Trash2, X, RefreshCw } from 'lucide-react';
 import { Student } from '../types';
 import { useNavigate } from 'react-router-dom';
 import Papa from 'papaparse';
@@ -12,61 +13,8 @@ export const Students: React.FC = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-
-  const [students, setStudents] = useState<Student[]>([
-    {
-      id: 'STU-101',
-      schoolId: 'SCH-01',
-      classId: 'CLS-11A',
-      studentCode: '2025-101',
-      name: 'Aarav Sharma',
-      parentName: 'Rajesh Sharma',
-      parentEmail: 'rajesh.sharma@example.com',
-      parentPhone: '+91 98765 43210',
-      isActive: true,
-      createdAt: '2025-09-01T00:00:00Z',
-      class: { id: 'CLS-11A', schoolId: 'SCH-01', name: 'Class 11', section: 'A' },
-      totalAssigned: 17500,
-      paidAmount: 17500,
-      balanceDue: 0,
-      status: 'PAID',
-    },
-    {
-      id: 'STU-102',
-      schoolId: 'SCH-01',
-      classId: 'CLS-12B',
-      studentCode: '2025-102',
-      name: 'Sofia Martinez',
-      parentName: 'Elena Martinez',
-      parentEmail: 'elena.m@example.com',
-      parentPhone: '+91 98123 45678',
-      isActive: true,
-      createdAt: '2025-09-01T00:00:00Z',
-      class: { id: 'CLS-12B', schoolId: 'SCH-01', name: 'Class 12', section: 'B' },
-      totalAssigned: 17500,
-      paidAmount: 10000,
-      balanceDue: 5000,
-      status: 'PARTIAL',
-    },
-    {
-      id: 'STU-103',
-      schoolId: 'SCH-01',
-      classId: 'CLS-10C',
-      studentCode: '2025-103',
-      name: 'Rohan Verma',
-      parentName: 'Vikram Verma',
-      parentEmail: 'vikram.v@example.com',
-      parentPhone: '+91 99887 76655',
-      isActive: true,
-      createdAt: '2025-09-01T00:00:00Z',
-      class: { id: 'CLS-10C', schoolId: 'SCH-01', name: 'Class 10', section: 'C' },
-      totalAssigned: 15700,
-      paidAmount: 0,
-      balanceDue: 15700,
-      status: 'OVERDUE',
-      overdueDays: 42,
-    },
-  ]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [students, setStudents] = useState<Student[]>([]);
 
   // Form State
   const [stuName, setStuName] = useState('');
@@ -75,32 +23,54 @@ export const Students: React.FC = () => {
   const [stuParent, setStuParent] = useState('');
   const [stuEmail, setStuEmail] = useState('');
   const [stuPhone, setStuPhone] = useState('');
-  const [stuAssigned, setStuAssigned] = useState(15000);
 
-  const handleAddStudent = (e: React.FormEvent) => {
+  const fetchStudents = async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiClient.get('/students');
+      if (res.data?.data) {
+        setStudents(res.data.data);
+      }
+    } catch (err) {
+      console.warn('Students fetch error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStudents();
+  }, []);
+
+  const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newStu: Student = {
-      id: `STU-${Math.floor(100 + Math.random() * 900)}`,
-      schoolId: 'SCH-01',
-      classId: 'CLS-01',
-      studentCode: stuCode || `2025-${Math.floor(100 + Math.random() * 900)}`,
-      name: stuName,
-      parentName: stuParent || 'Parent',
-      parentEmail: stuEmail || 'parent@school.edu',
-      parentPhone: stuPhone || '+91 98765 43210',
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      class: { id: 'CLS-01', schoolId: 'SCH-01', name: stuClass, section: 'A' },
-      totalAssigned: Number(stuAssigned),
-      paidAmount: 0,
-      balanceDue: Number(stuAssigned),
-      status: 'UNPAID',
-    };
+    try {
+      const res = await apiClient.post('/students', {
+        studentCode: stuCode || `2025-${Math.floor(100 + Math.random() * 900)}`,
+        name: stuName,
+        parentName: stuParent || 'Parent',
+        parentEmail: stuEmail || 'parent@springfield.edu',
+        parentPhone: stuPhone || '+91 98765 43210',
+      });
 
-    setStudents((prev) => [newStu, ...prev]);
-    setIsAddModalOpen(false);
-    setStuName('');
-    setStuCode('');
+      if (res.data?.success) {
+        fetchStudents();
+        setIsAddModalOpen(false);
+        setStuName('');
+        setStuCode('');
+      }
+    } catch (err) {
+      alert('Failed to add student to database');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await apiClient.delete(`/students/${id}`);
+      fetchStudents();
+    } catch (err) {
+      alert('Failed to delete student');
+    }
   };
 
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,27 +78,20 @@ export const Students: React.FC = () => {
     if (file) {
       Papa.parse(file, {
         header: true,
-        complete: (results) => {
-          const parsed = results.data.map((row: any, idx) => ({
-            id: `STU-CSV-${idx}`,
-            schoolId: 'SCH-01',
-            classId: 'CLS-01',
-            studentCode: row.StudentCode || `2025-C${idx}`,
-            name: row.Name || 'Student',
-            parentName: row.ParentName || 'Parent',
-            parentEmail: row.ParentEmail || 'parent@school.edu',
-            parentPhone: row.ParentPhone || '+91 98765 43210',
-            isActive: true,
-            createdAt: new Date().toISOString(),
-            class: { id: 'CLS-01', schoolId: 'SCH-01', name: row.ClassName || 'Class 10', section: row.Section || 'A' },
-            totalAssigned: 15000,
-            paidAmount: 0,
-            balanceDue: 15000,
-            status: 'UNPAID' as const,
-          }));
-
-          setStudents((prev) => [...parsed, ...prev]);
-          alert(`Successfully imported ${parsed.length} students via CSV!`);
+        complete: async (results) => {
+          for (const row of results.data as any[]) {
+            if (row.Name) {
+              await apiClient.post('/students', {
+                studentCode: row.StudentCode || `2025-${Math.floor(100 + Math.random() * 900)}`,
+                name: row.Name,
+                parentName: row.ParentName || 'Parent',
+                parentEmail: row.ParentEmail || 'parent@springfield.edu',
+                parentPhone: row.ParentPhone || '+91 98765 43210',
+              });
+            }
+          }
+          fetchStudents();
+          alert('CSV batch import completed successfully into database!');
         },
       });
     }
@@ -148,6 +111,13 @@ export const Students: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={fetchStudents}
+            className="p-2.5 bg-[#F5F5F0] border border-[#E5E7EB] rounded-2xl text-xs font-bold text-[#6B7280] hover:text-[#E85D04]"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
+
           <label className="flex items-center gap-2 px-4 py-2.5 bg-[#F5F5F0] border border-[#E5E7EB] rounded-2xl text-xs font-bold text-[#1A1A1A] hover:border-[#E85D04] transition-colors cursor-pointer">
             <Upload className="w-4 h-4 text-[#E85D04]" />
             <span>Bulk CSV Import</span>
@@ -207,7 +177,7 @@ export const Students: React.FC = () => {
                     <td className="py-3.5 pl-2 font-mono font-bold text-[#1A1A1A]">{s.studentCode}</td>
                     <td className="py-3.5 font-bold text-[#1A1A1A]">{s.name}</td>
                     <td className="py-3.5 font-semibold text-[#6B7280]">
-                      {s.class?.name} - {s.class?.section}
+                      {s.class?.name || 'Class 11'} - {s.class?.section || 'A'}
                     </td>
                     <td className="py-3.5">
                       <span className="font-semibold text-[#1A1A1A] block">{s.parentName}</span>
@@ -228,7 +198,7 @@ export const Students: React.FC = () => {
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => setStudents((prev) => prev.filter((item) => item.id !== s.id))}
+                          onClick={() => handleDelete(s.id)}
                           className="p-1.5 text-[#6B7280] hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -304,12 +274,13 @@ export const Students: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-[#1A1A1A] block mb-1">Assigned Fee (₹)</label>
+                  <label className="font-bold text-[#1A1A1A] block mb-1">Parent Phone</label>
                   <input
-                    type="number"
-                    value={stuAssigned}
-                    onChange={(e) => setStuAssigned(Number(e.target.value))}
-                    className="w-full bg-[#F5F5F0] border border-[#E5E7EB] rounded-xl p-2 font-bold text-[#1A1A1A]"
+                    type="text"
+                    value={stuPhone}
+                    onChange={(e) => setStuPhone(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    className="w-full bg-[#F5F5F0] border border-[#E5E7EB] rounded-xl p-2 font-semibold text-[#1A1A1A]"
                   />
                 </div>
               </div>
