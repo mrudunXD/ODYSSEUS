@@ -4,7 +4,6 @@ import { Sidebar } from '../components/layout/Sidebar';
 import { KPICard } from '../components/ui/KPICard';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
 import { StatusBadge } from '../components/ui/StatusBadge';
-import { AnimatedCounter } from '../components/react-bits/AnimatedCounter';
 import { RazorpayCheckoutModal } from '../components/modals/RazorpayCheckoutModal';
 import { ZeroFeeUpiModal } from '../components/modals/ZeroFeeUpiModal';
 import { OfflineRecordModal } from '../components/modals/OfflineRecordModal';
@@ -15,12 +14,8 @@ import {
   ChevronDown,
   Search,
   Filter,
-  FileText,
-  ArrowUpRight,
-  ArrowDownLeft,
   CheckSquare,
   Square,
-  Plus,
 } from 'lucide-react';
 import { Student, FeeType, Transaction, ChartDayPoint } from '../types';
 
@@ -253,7 +248,7 @@ export const Dashboard: React.FC = () => {
             )}
           </div>
 
-          {/* Export Button matching image */}
+          {/* Export Button */}
           <button
             onClick={handleExport}
             className="flex items-center gap-2 px-5 py-2 bg-[#E85D04] hover:bg-[#C44D00] text-white rounded-xl text-xs font-extrabold shadow-md shadow-[#E85D04]/20 transition-all cursor-pointer"
@@ -264,32 +259,28 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards Row (4 cards matching design language) */}
+      {/* KPI Cards Row (4 cards with clean percentage growth deltas) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard
           title="Total Revenue"
           value={totalRevenue}
-          deltaText="+9.5% from last month"
-          isPositive={true}
+          deltaPercent={9.5}
         />
         <KPICard
           title="Net Fees Pending"
           value={netPending}
-          deltaText="Requires Collection"
-          isPositive={false}
+          deltaPercent={-4.2}
         />
         <KPICard
           title="Total Waivers"
           value={totalWaivers}
-          deltaText="Scholarships Granted"
-          isPositive={true}
+          deltaPercent={12.4}
         />
         <KPICard
           title="Active Students"
           value={activeStudents}
           isCurrency={false}
-          deltaText="100% Enrolled"
-          isPositive={true}
+          deltaPercent={5.1}
         />
       </div>
 
@@ -300,7 +291,7 @@ export const Dashboard: React.FC = () => {
           <CashFlowChart data={chartData} monthlyTotal={totalRevenue} />
         </div>
 
-        {/* Right 4 Cols: Financial Sidebar Panel with Donut Chart & My Card */}
+        {/* Right 4 Cols: Financial Sidebar Panel */}
         <div className="lg:col-span-4">
           <Sidebar
             totalRevenue={totalRevenue}
@@ -314,10 +305,10 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Transaction History Table matching design screenshot */}
-      <div className="bg-white rounded-3xl p-6 border border-[#E5E7EB] card-shadow">
+      {/* Transaction History Table */}
+      <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] card-shadow">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <h3 className="text-sm font-bold text-[#1A1A1A] uppercase tracking-wider">
+          <h3 className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">
             Transaction History & Ledger
           </h3>
 

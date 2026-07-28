@@ -7,7 +7,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from 'recharts';
 import { formatCurrency } from '../../utils/formatCurrency';
 import { ChevronDown } from 'lucide-react';
@@ -21,7 +20,7 @@ interface CashFlowChartProps {
 export const CashFlowChart: React.FC<CashFlowChartProps> = ({ data, monthlyTotal }) => {
   const [selectedPeriod, setSelectedPeriod] = useState('Last Month');
 
-  // Custom Recharts Tooltip matching screenshot
+  // Floating White Tooltip Card
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
@@ -48,7 +47,7 @@ export const CashFlowChart: React.FC<CashFlowChartProps> = ({ data, monthlyTotal
   };
 
   return (
-    <div className="bg-white rounded-3xl p-6 border border-[#E5E7EB] card-shadow relative overflow-hidden">
+    <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] card-shadow relative overflow-hidden">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
         <div>
@@ -67,11 +66,11 @@ export const CashFlowChart: React.FC<CashFlowChartProps> = ({ data, monthlyTotal
         <div className="flex items-center gap-4 flex-wrap text-xs">
           <div className="flex items-center gap-4 font-semibold text-[#1A1A1A]">
             <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-[#E85D04]" />
+              <span className="w-2.5 h-2.5 rounded-xs bg-[#E85D04]" />
               <span>Revenue Inflow</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-[#1A1A1A]" />
+              <span className="w-2.5 h-2.5 rounded-xs bg-[#1A1A1A]" />
               <span>Expense Outflow</span>
             </div>
           </div>
@@ -94,11 +93,11 @@ export const CashFlowChart: React.FC<CashFlowChartProps> = ({ data, monthlyTotal
               fontSize={10}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(v) => `₹${Math.round(v / 1000)}k`}
+              tickFormatter={(v) => (v === 0 ? '₹0' : `₹${Math.round(v / 1000)}k`)}
             />
             <Tooltip content={<CustomTooltip />} />
-            <Bar dataKey="inflow" name="Revenue Inflow" fill="#E85D04" radius={[4, 4, 0, 0]} maxBarSize={32} />
-            <Bar dataKey="outflow" name="Expense Outflow" fill="#1A1A1A" radius={[4, 4, 0, 0]} maxBarSize={32} />
+            <Bar dataKey="inflow" name="Revenue Inflow" fill="#E85D04" radius={[4, 4, 0, 0]} maxBarSize={28} />
+            <Bar dataKey="outflow" name="Expense Outflow" fill="#1A1A1A" radius={[4, 4, 0, 0]} maxBarSize={28} />
           </BarChart>
         </ResponsiveContainer>
       </div>

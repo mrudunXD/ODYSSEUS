@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MoreHorizontal, Sparkles, MessageSquare, ArrowUpRight, Zap, CreditCard, FileSpreadsheet, BellRing } from 'lucide-react';
 import { formatCurrency } from '../../utils/formatCurrency';
 import { useNavigate } from 'react-router-dom';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 interface SidebarProps {
   totalRevenue: number;
@@ -27,13 +28,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const [showAiModal, setShowAiModal] = useState(false);
 
-  // Compute gauge stroke-dasharray based on collection percentage
-  const strokeDashoffset = Math.max(0, 125 - (125 * collectionRatePercent) / 100);
+  // Semicircle Donut Pie Chart Data
+  const gaugeData = [
+    { name: 'Collected', value: collectionRatePercent, color: '#E85D04' },
+    { name: 'Pending', value: 100 - collectionRatePercent, color: '#E5E7EB' },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Card 1: Financial Overview & Radial Gauge */}
-      <div className="bg-white rounded-3xl p-6 border border-[#E5E7EB] card-shadow card-hover flex flex-col justify-between">
+      {/* Card 1: Financial Overview with Frosted Glass & Semicircle Gauge */}
+      <div className="frosted-glass rounded-2xl p-6 border border-[#E5E7EB] card-shadow card-hover flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-[#1A1A1A]">Financial Overview</h3>
@@ -42,59 +46,59 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* AI Finance Insight Banner */}
+          {/* AI Finance Insight Row matching reference image */}
           <div className="bg-[#FFF0E6] border border-[#E85D04]/20 rounded-2xl p-3.5 mb-6 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-[#E85D04] text-white flex items-center justify-center shadow-sm">
-                <Sparkles className="w-4 h-4" />
+              <div className="w-9 h-9 rounded-full bg-[#E85D04] text-white flex items-center justify-center shadow-xs shrink-0">
+                <Sparkles className="w-4.5 h-4.5" />
               </div>
               <div>
-                <span className="text-xs font-extrabold text-[#1A1A1A] block">AI Finance Insight</span>
+                <span className="text-xs font-extrabold text-[#1A1A1A] block leading-tight">AI Finance Insight</span>
                 <span className="text-[11px] text-[#6B7280]">Smart tips from weekly collection analytics</span>
               </div>
             </div>
             <button
               onClick={() => setShowAiModal(true)}
-              className="w-8 h-8 rounded-xl bg-white border border-[#E5E7EB] flex items-center justify-center text-[#1A1A1A] hover:border-[#E85D04] transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-xl bg-white border border-[#E5E7EB] flex items-center justify-center text-[#1A1A1A] hover:border-[#E85D04] transition-colors cursor-pointer shrink-0"
             >
               <MessageSquare className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* Semi-circular Radial Donut Gauge */}
-          <div className="relative flex flex-col items-center justify-center py-4">
-            <svg className="w-48 h-28 transform" viewBox="0 0 100 50">
-              <path
-                d="M 10,50 A 40,40 0 0,1 90,50"
-                fill="none"
-                stroke="#E5E7EB"
-                strokeWidth="10"
-                strokeLinecap="round"
-              />
-              <path
-                d="M 10,50 A 40,40 0 0,1 90,50"
-                fill="none"
-                stroke="#E85D04"
-                strokeWidth="10"
-                strokeLinecap="round"
-                strokeDasharray="125"
-                strokeDashoffset={strokeDashoffset}
-                className="transition-all duration-1000 ease-out"
-              />
-            </svg>
+          {/* Recharts Semicircle Donut Gauge */}
+          <div className="relative flex flex-col items-center justify-center py-2 h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                <Pie
+                  data={gaugeData}
+                  cx="50%"
+                  cy="75%"
+                  startAngle={180}
+                  endAngle={0}
+                  innerRadius={65}
+                  outerRadius={85}
+                  paddingAngle={0}
+                  dataKey="value"
+                >
+                  <Cell fill="#E85D04" />
+                  <Cell fill="#E5E7EB" />
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
 
-            <div className="absolute top-12 text-center">
-              <span className="text-[10px] font-bold text-[#6B7280] uppercase tracking-wider block">
+            {/* Absolutely Centered Display Text inside Semicircle Arc */}
+            <div className="absolute top-[52%] left-1/2 -translate-x-1/2 text-center pointer-events-none">
+              <span className="text-[10px] font-extrabold text-[#6B7280] uppercase tracking-wider block">
                 Available Balance
               </span>
-              <span className="text-xl font-extrabold text-[#1A1A1A] tracking-tight">
+              <span className="text-xl lg:text-2xl font-extrabold text-[#1A1A1A] tracking-tight block mt-0.5">
                 {formatCurrency(netProfit)}
               </span>
             </div>
           </div>
 
           {/* Metrics Row at Bottom */}
-          <div className="grid grid-cols-2 gap-3 pt-4 border-t border-[#E5E7EB]">
+          <div className="grid grid-cols-2 gap-3 pt-4 border-t border-[#E5E7EB] mt-2">
             <div className="border-r border-[#E5E7EB] pr-2">
               <span className="text-sm font-extrabold text-[#1A1A1A] flex items-center gap-1">
                 {formatCurrency(totalRevenue)} <ArrowUpRight className="w-3.5 h-3.5 text-[#16A34A]" />
@@ -113,7 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Card 2: My Card & Quick Financial Action Buttons */}
-      <div className="bg-white rounded-3xl p-6 border border-[#E5E7EB] card-shadow card-hover flex flex-col justify-between">
+      <div className="bg-white rounded-2xl p-6 border border-[#E5E7EB] card-shadow card-hover flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-bold text-[#1A1A1A]">My Card</h3>
@@ -185,7 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* AI Insight Dialog Modal */}
       {showAiModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#E5E7EB] shadow-2xl animate-in zoom-in-95">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-[#E5E7EB] shadow-2xl animate-in zoom-in-95">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-2xl bg-[#E85D04] text-white flex items-center justify-center">
                 <Sparkles className="w-5 h-5" />
