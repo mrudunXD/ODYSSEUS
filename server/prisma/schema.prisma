@@ -1,0 +1,178 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model School {
+  id           String        @id @default(cuid())
+  name         String
+  address      String
+  logoUrl      String?
+  createdAt    DateTime      @default(now())
+  users        User[]
+  feeTypes     FeeType[]
+  students     Student[]
+  classes      Class[]
+  invoices     Invoice[]
+  transactions Transaction[]
+}
+
+model User {
+  id            String         @id @default(cuid())
+  schoolId      String
+  school        School         @relation(fields: [schoolId], references: [id])
+  name          String
+  email         String         @unique
+  passwordHash  String
+  role          String         // SUPER_ADMIN | ADMIN | ACCOUNTANT | TEACHER | PARENT
+  avatarUrl     String?
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+}
+
+model Class {
+  id       String    @id @default(cuid())
+  schoolId String
+  school   School    @relation(fields: [schoolId], references: [id])
+  name     String
+  section  String
+  students Student[]
+}
+
+model Student {
+  id          String    @id @default(cuid())
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id])
+  classId     String
+  class       Class     @relation(fields: [classId], references: [id])
+  studentCode String    @unique
+  name        String
+  parentName  String
+  parentEmail String
+  parentPhone String
+  address     String?
+  dob         DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  invoices    Invoice[]
+  waivers     Waiver[]
+}
+
+model FeeType {
+  id              String        @id @default(cuid())
+  schoolId        String
+  school          School        @relation(fields: [schoolId], references: [id])
+  name            String
+  description     String?
+  amount          Float
+  frequency       String        // ONE_TIME | MONTHLY | QUARTERLY | ANNUAL
+  isActive        Boolean       @default(true)
+  lateFeePerDay   Float?        @default(50.0)
+  gracePeriodDays Int?          @default(5)
+  applicableTo    String        @default("ALL") // ALL | CLASS_SPECIFIC | STUDENT_SPECIFIC
+  createdAt       DateTime      @default(now())
+  invoiceItems    InvoiceItem[]
+}
+
+model Invoice {
+  id           String        @id @default(cuid())
+  schoolId     String
+  school       School        @relation(fields: [schoolId], references: [id])
+  studentId    String
+  student      Student       @relation(fields: [studentId], references: [id])
+  invoiceNo    String        @unique
+  issueDate    DateTime      @default(now())
+  dueDate      DateTime
+  totalAmount  Float
+  paidAmount   Float         @default(0)
+  status       String        @default("UNPAID") // UNPAID | PARTIAL | PAID | OVERDUE | WAIVED | CANCELLED
+  items        InvoiceItem[]
+  transactions Transaction[]
+  waivers      Waiver[]
+  createdAt    DateTime      @default(now())
+}
+
+model InvoiceItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  feeTypeId String
+  feeType   FeeType @relation(fields: [feeTypeId], references: [id])
+  label     String
+  amount    Float
+  lateFee   Float   @default(0)
+}
+
+model Transaction {
+  id                String    @id @default(cuid())
+  schoolId          String
+  school            School    @relation(fields: [schoolId], references: [id])
+  invoiceId         String
+  invoice           Invoice   @relation(fields: [invoiceId], references: [id])
+  amount            Float
+  method            String    // UPI | CASH | CHEQUE | RAZORPAY | BANK_TRANSFER
+  status            String    @default("PENDING") // PENDING | SUCCESS | FAILED | REFUNDED | UNDER_REVIEW
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  chequeNo          String?
+  chequeBank        String?
+  chequeDate        DateTime?
+  chequeImageUrl    String?
+  upiRef            String?
+  cashReceivedBy    String?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  reconciledAt      DateTime?
+  reconciledBy      String?
+}
+
+model Waiver {
+  id         String   @id @default(cuid())
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id])
+  invoiceId  String
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+  amount     Float
+  reason     String
+  approvedBy String
+  createdAt  DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String
+  oldValue  String?
+  newValue  String?
+  ip        String?
+  createdAt DateTime @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   // PAYMENT_RECEIVED | INVOICE_OVERDUE | WAIVER_APPROVED | SYSTEM
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
