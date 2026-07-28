@@ -6,29 +6,73 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import Razorpay from 'razorpay';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
+import sanitizeHtml from 'sanitize-html';
+import winston from 'winston';
+import { body, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
 
 dotenv.config();
+
+// Standard Logger Setup
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [new winston.transports.Console()],
+});
 
 const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Security Strict Env Enforcements
 const JWT_SECRET = process.env.JWT_SECRET || 'schoolfin_jwt_secret_key_2026_super_secure';
 const ACCESS_TOKEN_EXPIRY = '15m';
-const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_TIWVCWyzGuKOq8';
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'yQ1CqeJoYcf07z80S2wLlKAm';
 
 const razorpay = new Razorpay({ key_id: RAZORPAY_KEY_ID, key_secret: RAZORPAY_KEY_SECRET });
 
+// Middlewares
 app.use(helmet({ contentSecurityPolicy: false }));
+app.use(compression());
 app.use(cors({ origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'] }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ─── UTILITY ─────────────────────────────────────────────────────────────────
+// Global Rate Limiting
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Too many authentication attempts, please try again in 15 minutes.' },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  message: { error: 'Too many requests from this IP.' },
+});
+
+app.use('/api/', apiLimiter);
+
+// Input Sanitizer Middleware
+const sanitizeInputs = (req: any, _res: any, next: any) => {
+  if (req.body) {
+    for (const key in req.body) {
+      if (typeof req.body[key] === 'string') {
+        req.body[key] = sanitizeHtml(req.body[key], { allowedTags: [], allowedAttributes: {} }).trim();
+      }
+    }
+  }
+  next();
+};
+
+app.use(sanitizeInputs);
+
+// ─── UTILITIES & HELPERS ───────────────────────────────────────────────────
 const issueAccessToken = (user: { id: string; email: string; role: string; name: string }) =>
   jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, {
     expiresIn: ACCESS_TOKEN_EXPIRY,
@@ -41,7 +85,39 @@ const createRefreshToken = async (userId: string) => {
   return token;
 };
 
-// ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
+// Double-Entry Accounting Ledger Helper
+const createLedgerEntries = async (
+  tx: any,
+  transactionId: string,
+  schoolId: string,
+  amount: number,
+  method: string,
+  description: string
+) => {
+  const debitAccount = method === 'CASH' ? 'CASH' : 'BANK';
+  await tx.ledgerEntry.createMany({
+    data: [
+      {
+        schoolId,
+        transactionId,
+        account: debitAccount,
+        type: 'DEBIT',
+        amount,
+        description: `Debit ${debitAccount} for ${description}`,
+      },
+      {
+        schoolId,
+        transactionId,
+        account: 'ACCOUNTS_RECEIVABLE',
+        type: 'CREDIT',
+        amount,
+        description: `Credit Accounts Receivable for ${description}`,
+      },
+    ],
+  });
+};
+
+// ─── MIDDLEWARES ─────────────────────────────────────────────────────────────
 const authenticateToken = (req: any, res: any, next: any) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader?.split(' ')[1];
@@ -78,17 +154,27 @@ const writeAudit = async (userId: string, action: string, entity: string, entity
   } catch (_) { /* non-blocking */ }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AUTH ROUTES
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── HEALTH PROBES ───────────────────────────────────────────────────────────
+app.get('/healthz', (_req, res) => res.json({ status: 'UP', timestamp: new Date() }));
+app.get('/readyz', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'READY', db: 'CONNECTED' });
+  } catch (err) {
+    res.status(503).json({ status: 'UNREADY', db: 'DISCONNECTED' });
+  }
+});
 
-// POST /api/auth/login
-app.post('/api/auth/login', async (req, res) => {
+// ─── AUTHENTICATION ROUTES ───────────────────────────────────────────────────
+app.post('/api/auth/login', authLimiter, [
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 6 }),
+], async (req: any, res: any) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Invalid email or password format' });
+
   try {
     const { email, password } = req.body;
-    if (!email || !password)
-      return res.status(400).json({ error: 'Email and password are required' });
-
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
     if (!user || !user.isActive)
       return res.status(401).json({ error: 'Invalid credentials or account disabled' });
@@ -118,12 +204,11 @@ app.post('/api/auth/login', async (req, res) => {
       },
     });
   } catch (err: any) {
-    console.error('Login error:', err);
+    logger.error('Login error', { error: err.message });
     res.status(500).json({ error: 'Server error during authentication' });
   }
 });
 
-// POST /api/auth/refresh
 app.post('/api/auth/refresh', async (req, res) => {
   try {
     const { refreshToken } = req.body;
@@ -136,14 +221,17 @@ app.post('/api/auth/refresh', async (req, res) => {
     if (!stored.user.isActive)
       return res.status(401).json({ error: 'Account has been disabled' });
 
+    // Rotate refresh token for security
+    await prisma.refreshToken.delete({ where: { id: stored.id } });
+    const newRefreshToken = await createRefreshToken(stored.user.id);
     const accessToken = issueAccessToken(stored.user);
-    res.json({ success: true, token: accessToken });
+
+    res.json({ success: true, token: accessToken, refreshToken: newRefreshToken });
   } catch (err) {
     res.status(500).json({ error: 'Failed to refresh token' });
   }
 });
 
-// POST /api/auth/logout
 app.post('/api/auth/logout', authenticateToken, async (req: any, res) => {
   try {
     const { refreshToken } = req.body;
@@ -157,7 +245,6 @@ app.post('/api/auth/logout', authenticateToken, async (req: any, res) => {
   }
 });
 
-// GET /api/auth/me
 app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { school: true } });
@@ -181,7 +268,6 @@ app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
   }
 });
 
-// PUT /api/auth/profile
 app.put('/api/auth/profile', authenticateToken, async (req: any, res) => {
   try {
     const { name, avatarUrl, currentPassword, newPassword } = req.body;
@@ -224,18 +310,7 @@ app.put('/api/auth/profile', authenticateToken, async (req: any, res) => {
   }
 });
 
-// Google OAuth stub endpoint
-app.get('/api/auth/google', (_req, res) => {
-  res.status(501).json({
-    error: 'Google OAuth not configured',
-    message: 'Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env and install passport-google-oauth20',
-    setupUrl: 'https://console.cloud.google.com/',
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DASHBOARD STATS (live DB aggregations — no hardcoding)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── DASHBOARD STATS ─────────────────────────────────────────────────────────
 app.get('/api/dashboard/stats', authenticateToken, async (req: any, res) => {
   try {
     const now = new Date();
@@ -243,7 +318,6 @@ app.get('/api/dashboard/stats', authenticateToken, async (req: any, res) => {
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
-    // Revenue aggregations
     const [thisMonthRev, lastMonthRev, totalRevAgg, pendingAgg, waiversAgg, activeStudents] = await Promise.all([
       prisma.transaction.aggregate({
         where: { status: 'SUCCESS', createdAt: { gte: startOfThisMonth } },
@@ -266,12 +340,10 @@ app.get('/api/dashboard/stats', authenticateToken, async (req: any, res) => {
     const netPending = (pendingAgg._sum as any).totalAmount ?? 0;
     const totalWaivers = waiversAgg._sum.amount ?? 0;
 
-    // Compute real delta percentages
     const thisRev = thisMonthRev._sum.amount ?? 0;
     const lastRev = lastMonthRev._sum.amount ?? 0;
     const revenueDeltaPercent = lastRev > 0 ? parseFloat(((thisRev - lastRev) / lastRev * 100).toFixed(1)) : 0;
 
-    // Count invoices this month vs last month
     const [thisMonthPending, lastMonthPending] = await Promise.all([
       prisma.invoice.count({ where: { status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] }, createdAt: { gte: startOfThisMonth } } }),
       prisma.invoice.count({ where: { status: { in: ['UNPAID', 'PARTIAL', 'OVERDUE'] }, createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } } }),
@@ -281,14 +353,12 @@ app.get('/api/dashboard/stats', authenticateToken, async (req: any, res) => {
       ? parseFloat(((thisMonthPending - lastMonthPending) / lastMonthPending * 100).toFixed(1))
       : 0;
 
-    // Collection rate
     const [totalInvoices, paidInvoices] = await Promise.all([
       prisma.invoice.count(),
       prisma.invoice.count({ where: { status: 'PAID' } }),
     ]);
     const collectionRatePercent = totalInvoices > 0 ? Math.round((paidInvoices / totalInvoices) * 100) : 0;
 
-    // Overdue count for AI insight
     const overdueCount = await prisma.invoice.count({ where: { status: 'OVERDUE' } });
     const aiInsight = overdueCount > 0
       ? `${overdueCount} invoices are overdue. Collection rate is ${collectionRatePercent}%. Consider sending UPI QR reminders to defaulters.`
@@ -310,12 +380,11 @@ app.get('/api/dashboard/stats', authenticateToken, async (req: any, res) => {
       },
     });
   } catch (err: any) {
-    console.error('Dashboard stats error:', err);
+    logger.error('Dashboard stats error', { error: err.message });
     res.status(500).json({ error: 'Failed to compute dashboard statistics' });
   }
 });
 
-// GET /api/dashboard/chart-data — real daily transaction aggregation for last 30 days
 app.get('/api/dashboard/chart-data', authenticateToken, async (_req, res) => {
   try {
     const days = 30;
@@ -345,9 +414,7 @@ app.get('/api/dashboard/chart-data', authenticateToken, async (_req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STUDENTS API
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── STUDENTS API ─────────────────────────────────────────────────────────────
 app.get('/api/students', authenticateToken, async (_req, res) => {
   try {
     const students = await prisma.student.findMany({
@@ -451,9 +518,7 @@ app.get('/api/students/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CLASSES API
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── CLASSES API ─────────────────────────────────────────────────────────────
 app.get('/api/classes', authenticateToken, async (_req, res) => {
   try {
     const classes = await prisma.class.findMany({ orderBy: { name: 'asc' } });
@@ -475,9 +540,7 @@ app.post('/api/classes', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'),
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FEE TYPES API
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── FEE TYPES API ───────────────────────────────────────────────────────────
 app.get('/api/fees', authenticateToken, async (_req, res) => {
   try {
     const fees = await prisma.feeType.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });
@@ -525,13 +588,10 @@ app.delete('/api/fees/:id', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INVOICES API
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── INVOICES API ────────────────────────────────────────────────────────────
 app.get('/api/invoices', authenticateToken, async (req: any, res) => {
   try {
     const where: any = {};
-    // Parents only see invoices for their children
     if (req.user.role === 'PARENT') {
       const children = await prisma.student.findMany({ where: { parentEmail: req.user.email } });
       where.studentId = { in: children.map((c: any) => c.id) };
@@ -547,15 +607,13 @@ app.get('/api/invoices', authenticateToken, async (req: any, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Apply late fees dynamically on retrieval
     const now = new Date();
     const enriched = invoices.map((inv) => {
       let lateFeeAccrued = 0;
       if (['UNPAID', 'PARTIAL', 'OVERDUE'].includes(inv.status) && inv.dueDate < now) {
         const overdueDays = Math.floor((now.getTime() - inv.dueDate.getTime()) / 86400000);
-        lateFeeAccrued = overdueDays * 50; // ₹50/day default
+        lateFeeAccrued = overdueDays * 50;
         if (inv.status !== 'OVERDUE') {
-          // Update status to OVERDUE in background
           prisma.invoice.update({ where: { id: inv.id }, data: { status: 'OVERDUE' } }).catch(() => {});
         }
       }
@@ -627,9 +685,7 @@ app.delete('/api/invoices/:id', authenticateToken, requireRole('SUPER_ADMIN', 'A
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TRANSACTIONS / PAYMENTS API
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── TRANSACTIONS / PAYMENTS API (Transactional + Double-Entry Ledger) ───────
 app.get('/api/transactions', authenticateToken, async (req: any, res) => {
   try {
     const where: any = {};
@@ -641,7 +697,7 @@ app.get('/api/transactions', authenticateToken, async (req: any, res) => {
 
     const transactions = await prisma.transaction.findMany({
       where,
-      include: { invoice: { include: { student: true } } },
+      include: { invoice: { include: { student: true } }, ledgerEntries: true },
       orderBy: { createdAt: 'desc' },
     });
     res.json({ success: true, data: transactions });
@@ -652,44 +708,65 @@ app.get('/api/transactions', authenticateToken, async (req: any, res) => {
 
 app.post('/api/payments/record', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (req: any, res) => {
   try {
-    const { invoiceId, method, amount, referenceNo, notes, chequeNo, chequeBank, upiRef } = req.body;
+    const { invoiceId, method, amount, referenceNo, notes, chequeNo, chequeBank, upiRef, idempotencyKey } = req.body;
     if (!invoiceId || !method || !amount) return res.status(400).json({ error: 'Invoice ID, method, and amount are required' });
 
+    // Idempotency check
+    if (idempotencyKey) {
+      const existingTx = await prisma.transaction.findUnique({ where: { idempotencyKey } });
+      if (existingTx) return res.json({ success: true, data: existingTx, note: 'Idempotent replay' });
+    }
+
     const school = await prisma.school.findFirst();
-    const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+    const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId }, include: { student: true } });
     if (!school || !invoice) return res.status(400).json({ error: 'Invoice not found' });
 
-    const newPaid = invoice.paidAmount + Number(amount);
-    const newStatus = newPaid >= invoice.totalAmount ? 'PAID' : 'PARTIAL';
+    // Atomic DB Transaction with Double-Entry Ledger
+    const result = await prisma.$transaction(async (tx) => {
+      const newPaid = invoice.paidAmount + Number(amount);
+      const newStatus = newPaid >= invoice.totalAmount ? 'PAID' : 'PARTIAL';
 
-    await prisma.invoice.update({ where: { id: invoiceId }, data: { paidAmount: newPaid, status: newStatus } });
+      await tx.invoice.update({ where: { id: invoiceId }, data: { paidAmount: newPaid, status: newStatus } });
 
-    const tx = await prisma.transaction.create({
-      data: {
-        schoolId: school.id,
-        invoiceId,
-        amount: Number(amount),
+      const transaction = await tx.transaction.create({
+        data: {
+          schoolId: school.id,
+          invoiceId,
+          amount: Number(amount),
+          method,
+          status: 'SUCCESS',
+          idempotencyKey: idempotencyKey || null,
+          referenceNo: referenceNo || `REF-${Date.now()}`,
+          chequeNo,
+          chequeBank,
+          upiRef,
+          notes,
+          cashReceivedBy: method === 'CASH' ? req.user.name : null,
+        },
+      });
+
+      // Post Double-Entry Ledger entries
+      await createLedgerEntries(
+        tx,
+        transaction.id,
+        school.id,
+        Number(amount),
         method,
-        status: 'SUCCESS',
-        referenceNo: referenceNo || `REF-${Date.now()}`,
-        chequeNo,
-        chequeBank,
-        upiRef,
-        notes,
-        cashReceivedBy: method === 'CASH' ? req.user.name : null,
-      },
+        `Payment for ${invoice.invoiceNo} (${invoice.student.name})`
+      );
+
+      return transaction;
     });
 
-    await writeAudit(req.user.id, 'PAYMENT_RECORDED', 'Transaction', tx.id, null, { invoiceId, method, amount });
-    res.json({ success: true, data: tx });
+    await writeAudit(req.user.id, 'PAYMENT_RECORDED', 'Transaction', result.id, null, { invoiceId, method, amount });
+    res.json({ success: true, data: result });
   } catch (err: any) {
+    logger.error('Payment error', { error: err.message });
     res.status(500).json({ error: err.message || 'Failed to record payment' });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RAZORPAY
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── RAZORPAY ─────────────────────────────────────────────────────────────
 app.post('/api/create-order', authenticateToken, async (req, res) => {
   try {
     const { amount, currency = 'INR', receipt } = req.body;
@@ -726,58 +803,76 @@ app.post('/api/verify-payment', authenticateToken, async (req: any, res) => {
     const school = await prisma.school.findFirst();
     if (!school) return res.status(400).json({ error: 'School not configured' });
 
-    let invoice = invoiceId ? await prisma.invoice.findUnique({ where: { id: invoiceId } }) : null;
-    const paidAmt = Number(amount) / 100; // convert paise → rupees
+    const paidAmt = Number(amount) / 100;
 
-    if (!invoice) {
-      const firstStudent = await prisma.student.findFirst();
-      if (firstStudent) {
-        invoice = await prisma.invoice.create({
-          data: {
-            schoolId: school.id,
-            studentId: firstStudent.id,
-            invoiceNo: `INV-RZP-${Date.now()}`,
-            dueDate: new Date(Date.now() + 86400000 * 10),
-            totalAmount: paidAmt,
-            paidAmount: paidAmt,
-            status: 'PAID',
-          },
+    const result = await prisma.$transaction(async (tx) => {
+      let invoice = invoiceId ? await tx.invoice.findUnique({ where: { id: invoiceId }, include: { student: true } }) : null;
+
+      if (!invoice) {
+        const firstStudent = await tx.student.findFirst();
+        if (firstStudent) {
+          invoice = await tx.invoice.create({
+            data: {
+              schoolId: school.id,
+              studentId: firstStudent.id,
+              invoiceNo: `INV-RZP-${Date.now()}`,
+              dueDate: new Date(Date.now() + 86400000 * 10),
+              totalAmount: paidAmt,
+              paidAmount: paidAmt,
+              status: 'PAID',
+            },
+            include: { student: true },
+          });
+        }
+      } else {
+        const newPaid = invoice.paidAmount + paidAmt;
+        invoice = await tx.invoice.update({
+          where: { id: invoice.id },
+          data: { paidAmount: newPaid, status: newPaid >= invoice.totalAmount ? 'PAID' : 'PARTIAL' },
+          include: { student: true },
         });
       }
-    } else {
-      const newPaid = invoice.paidAmount + paidAmt;
-      invoice = await prisma.invoice.update({
-        where: { id: invoice.id },
-        data: { paidAmount: newPaid, status: newPaid >= invoice.totalAmount ? 'PAID' : 'PARTIAL' },
-      });
+
+      if (invoice) {
+        const transaction = await tx.transaction.create({
+          data: {
+            schoolId: school.id,
+            invoiceId: invoice.id,
+            amount: paidAmt,
+            method: 'RAZORPAY',
+            status: 'SUCCESS',
+            referenceNo: razorpay_payment_id,
+            razorpayPaymentId: razorpay_payment_id,
+            razorpayOrderId: razorpay_order_id,
+            razorpaySignature: razorpay_signature,
+          },
+        });
+
+        await createLedgerEntries(
+          tx,
+          transaction.id,
+          school.id,
+          paidAmt,
+          'RAZORPAY',
+          `Razorpay payment for ${invoice.invoiceNo}`
+        );
+
+        return transaction;
+      }
+      return null;
+    });
+
+    if (result) {
+      await writeAudit(req.user.id, 'RAZORPAY_PAYMENT', 'Transaction', razorpay_payment_id, null, { amount: paidAmt });
     }
 
-    if (invoice) {
-      await prisma.transaction.create({
-        data: {
-          schoolId: school.id,
-          invoiceId: invoice.id,
-          amount: paidAmt,
-          method: 'RAZORPAY',
-          status: 'SUCCESS',
-          referenceNo: razorpay_payment_id,
-          razorpayPaymentId: razorpay_payment_id,
-          razorpayOrderId: razorpay_order_id,
-          razorpaySignature: razorpay_signature,
-        },
-      });
-      await writeAudit(req.user.id, 'RAZORPAY_PAYMENT', 'Transaction', razorpay_payment_id, null, { amount: paidAmt, invoiceId: invoice.id });
-    }
-
-    res.json({ success: true, payment_id: razorpay_payment_id, message: 'Payment verified and persisted' });
+    res.json({ success: true, payment_id: razorpay_payment_id, message: 'Payment verified and posted to Ledger' });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Payment verification failed' });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DEFAULTERS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── DEFAULTERS ───────────────────────────────────────────────────────────────
 app.get('/api/defaulters', authenticateToken, async (_req, res) => {
   try {
     const now = new Date();
@@ -821,9 +916,7 @@ app.get('/api/defaulters', authenticateToken, async (_req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WAIVERS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── WAIVERS ─────────────────────────────────────────────────────────────────
 app.post('/api/waivers', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'), async (req: any, res) => {
   try {
     const { studentId, invoiceId, amount, reason } = req.body;
@@ -834,7 +927,6 @@ app.post('/api/waivers', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'),
       data: { studentId, invoiceId, amount: Number(amount), reason, approvedBy: req.user.name },
     });
 
-    // Apply waiver to invoice
     const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
     if (invoice) {
       const newTotal = Math.max(0, invoice.totalAmount - Number(amount));
@@ -849,9 +941,7 @@ app.post('/api/waivers', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'),
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// USERS MANAGEMENT (SUPER_ADMIN only)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── USERS MANAGEMENT ────────────────────────────────────────────────────────
 app.get('/api/users', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'), async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
@@ -900,9 +990,7 @@ app.put('/api/users/:id/toggle', authenticateToken, requireRole('SUPER_ADMIN'), 
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PARENT PORTAL ENDPOINTS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── PARENT PORTAL ───────────────────────────────────────────────────────────
 app.get('/api/parent/my-children', authenticateToken, requireRole('PARENT'), async (req: any, res) => {
   try {
     const children = await prisma.student.findMany({
@@ -929,9 +1017,7 @@ app.get('/api/parent/my-children', authenticateToken, requireRole('PARENT'), asy
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AUDIT LOGS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── AUDIT LOGS ──────────────────────────────────────────────────────────────
 app.get('/api/audit-logs', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'), async (_req, res) => {
   try {
     const logs = await prisma.auditLog.findMany({
@@ -945,9 +1031,7 @@ app.get('/api/audit-logs', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN'
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SCHOOL SETTINGS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── SCHOOL SETTINGS ─────────────────────────────────────────────────────────
 app.get('/api/settings/school', authenticateToken, async (_req, res) => {
   try {
     const school = await prisma.school.findFirst();
@@ -970,9 +1054,7 @@ app.put('/api/settings/school', authenticateToken, requireRole('SUPER_ADMIN'), a
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// REPORTS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── REPORTS ─────────────────────────────────────────────────────────────────
 app.get('/api/reports/summary', authenticateToken, requireRole('SUPER_ADMIN', 'ADMIN', 'ACCOUNTANT'), async (_req, res) => {
   try {
     const [totalRevenue, pendingAmount, overdueCount, paidCount, totalStudents, byMethod] = await Promise.all([
@@ -1000,12 +1082,16 @@ app.get('/api/reports/summary', authenticateToken, requireRole('SUPER_ADMIN', 'A
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// START SERVER
-// ─────────────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`\n✓ SchoolFin Production API running on port ${PORT}`);
-  console.log(`  Auth: bcrypt passwords + 15m JWT access tokens + 7d refresh tokens`);
-  console.log(`  RBAC: Server-enforced role guards on every write endpoint`);
-  console.log(`  DB:   Prisma ORM + SQLite (dev) | switch DATABASE_URL for PostgreSQL`);
+// ─── START SERVER ────────────────────────────────────────────────────────────
+const server = app.listen(PORT, () => {
+  logger.info(`✓ SchoolFin Production Enterprise API running on port ${PORT}`);
+});
+
+// Graceful Shutdown
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    prisma.$disconnect();
+    logger.info('HTTP server and DB connections closed');
+  });
 });

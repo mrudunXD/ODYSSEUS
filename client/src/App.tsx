@@ -110,12 +110,16 @@ const AppShell: React.FC = () => {
   );
 };
 
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
+
 export const App: React.FC = () => (
-  <QueryClientProvider client={queryClient}>
-    <BrowserRouter>
-      <AppShell />
-    </BrowserRouter>
-  </QueryClientProvider>
+  <ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AppShell />
+      </BrowserRouter>
+    </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;

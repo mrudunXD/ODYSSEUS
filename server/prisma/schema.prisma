@@ -19,6 +19,7 @@ model School {
   classes      Class[]
   invoices     Invoice[]
   transactions Transaction[]
+  ledgerEntries LedgerEntry[]
 }
 
 model User {
@@ -62,6 +63,8 @@ model Student {
   createdAt   DateTime  @default(now())
   invoices    Invoice[]
   waivers     Waiver[]
+
+  @@index([parentEmail])
 }
 
 model FeeType {
@@ -110,14 +113,15 @@ model InvoiceItem {
 }
 
 model Transaction {
-  id                String    @id @default(cuid())
+  id                String        @id @default(cuid())
   schoolId          String
-  school            School    @relation(fields: [schoolId], references: [id])
+  school            School        @relation(fields: [schoolId], references: [id])
   invoiceId         String
-  invoice           Invoice   @relation(fields: [invoiceId], references: [id])
+  invoice           Invoice       @relation(fields: [invoiceId], references: [id])
   amount            Float
-  method            String    // UPI | CASH | CHEQUE | RAZORPAY | BANK_TRANSFER
-  status            String    @default("PENDING") // PENDING | SUCCESS | FAILED | REFUNDED | UNDER_REVIEW
+  method            String        // UPI | CASH | CHEQUE | RAZORPAY | BANK_TRANSFER
+  status            String        @default("PENDING") // PENDING | SUCCESS | FAILED | REFUNDED | UNDER_REVIEW
+  idempotencyKey    String?       @unique
   referenceNo       String?
   razorpayOrderId   String?
   razorpayPaymentId String?
@@ -129,9 +133,24 @@ model Transaction {
   upiRef            String?
   cashReceivedBy    String?
   notes             String?
-  createdAt         DateTime  @default(now())
+  createdAt         DateTime      @default(now())
   reconciledAt      DateTime?
   reconciledBy      String?
+  ledgerEntries     LedgerEntry[]
+}
+
+// Double-Entry Accounting Ledger Engine
+model LedgerEntry {
+  id            String       @id @default(cuid())
+  schoolId      String
+  school        School       @relation(fields: [schoolId], references: [id])
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  account       String       // CASH | BANK | ACCOUNTS_RECEIVABLE | REVENUE | LATE_FEE_INCOME
+  type          String       // DEBIT | CREDIT
+  amount        Float
+  description   String
+  createdAt     DateTime     @default(now())
 }
 
 model Waiver {
